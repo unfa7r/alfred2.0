@@ -1,11 +1,19 @@
 import os
 import requests
+
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
+GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+
+
+# =========================
+# BINANCE
+# =========================
 
 def get_price(symbol):
     try:
@@ -14,6 +22,7 @@ def get_price(symbol):
             params={"symbol": symbol},
             timeout=10
         )
+
         r.raise_for_status()
         data = r.json()
 
@@ -21,15 +30,86 @@ def get_price(symbol):
             print("BINANCE HATASI:", data)
             return None
 
-        return (
-            float(data["lastPrice"]),
-            float(data.get("priceChangePercent", 0))
-        )
+        price = float(data["lastPrice"])
+        change = float(data.get("priceChangePercent", 0))
+
+        return price, change
 
     except Exception as e:
         print("FIYAT HATASI:", repr(e))
         return None
 
+
+# =========================
+# HABERLER
+# =========================
+
+def get_news(query, limit=5):
+    try:
+        params = {
+            "query": query,
+            "mode": "artlist",
+            "maxrecords": limit,
+            "format": "json",
+            "sort": "datedesc"
+        }
+
+        r = requests.get(
+            GDELT_URL,
+            params=params,
+            timeout=20
+        )
+
+        r.raise_for_status()
+
+        data = r.json()
+        articles = data.get("articles", [])
+
+        results = []
+
+        for article in articles:
+            title = article.get("title", "")
+            url = article.get("url", "")
+            domain = article.get("domain", "")
+
+            if title and url:
+                results.append({
+                    "title": title,
+                    "url": url,
+                    "domain": domain
+                })
+
+        return results[:limit]
+
+    except Exception as e:
+        print("HABER HATASI:", repr(e))
+        return []
+
+
+def news_text(header, news):
+    if not news:
+        return (
+            f"{header}\n\n"
+            "⚠️ Şu anda güvenilir haber bulunamadı."
+        )
+
+    text = f"{header}\n"
+    text += "━━━━━━━━━━━━━━\n\n"
+
+    for i, article in enumerate(news, 1):
+        text += f"{i}. {article['title']}\n"
+        text += f"🏛 Kaynak: {article['domain']}\n"
+        text += f"🔗 {article['url']}\n\n"
+
+    text += "━━━━━━━━━━━━━━\n"
+    text += "🦇 Alfred 2.0"
+
+    return text
+
+
+# =========================
+# SISTEM
+# =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -62,11 +142,17 @@ async def yardim(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# =========================
+# BTC
+# =========================
+
 async def fiyatbtc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = get_price("BTCUSDT")
 
     if result is None:
-        await update.message.reply_text("⚠️ BTC fiyatı alınamadı.")
+        await update.message.reply_text(
+            "⚠️ BTC fiyatı alınamadı."
+        )
         return
 
     price, change = result
@@ -78,11 +164,17 @@ async def fiyatbtc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# =========================
+# SOL
+# =========================
+
 async def fiyatsol(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = get_price("SOLUSDT")
 
     if result is None:
-        await update.message.reply_text("⚠️ SOL fiyatı alınamadı.")
+        await update.message.reply_text(
+            "⚠️ SOL fiyatı alınamadı."
+        )
         return
 
     price, change = result
@@ -93,6 +185,10 @@ async def fiyatsol(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 24s: {change:+.2f}%"
     )
 
+
+# =========================
+# TARA
+# =========================
 
 async def tara(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -105,6 +201,7 @@ async def tara(update: Update, context: ContextTypes.DEFAULT_TYPE):
             BINANCE_URL,
             timeout=20
         )
+
         r.raise_for_status()
         data = r.json()
 
@@ -117,16 +214,36 @@ async def tara(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         coins = []
 
+        excluded = [
+            "USDCUSDT",
+            "FDUSDUSDT",
+            "TUSDUSDT",
+            "USDTUSDT",
+            "DAIUSDT"
+        ]
+
         for item in data:
             symbol = item.get("symbol", "")
 
             if not symbol.endswith("USDT"):
                 continue
 
+            if symbol in excluded:
+                continue
+
             try:
-                change = float(item.get("priceChangePercent", 0))
-                volume = float(item.get("quoteVolume", 0))
-                price = float(item.get("lastPrice", 0))
+                change = float(
+                    item.get("priceChangePercent", 0)
+                )
+
+                volume = float(
+                    item.get("quoteVolume", 0)
+                )
+
+                price = float(
+                    item.get("lastPrice", 0)
+                )
+
             except (TypeError, ValueError):
                 continue
 
@@ -136,14 +253,12 @@ async def tara(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if change <= 0:
                 continue
 
-            coins.append(
-                {
-                    "symbol": symbol.replace("USDT", ""),
-                    "change": change,
-                    "volume": volume,
-                    "price": price
-                }
-            )
+            coins.append({
+                "symbol": symbol.replace("USDT", ""),
+                "change": change,
+                "volume": volume,
+                "price": price
+            })
 
         coins.sort(
             key=lambda x: x["change"],
@@ -169,34 +284,102 @@ async def tara(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💵 Fiyat: ${coin['price']:.8f}\n\n"
             )
 
-        text += "⚠️ Bu bir AL/SAT garantisi değildir."
+        text += "⚠️ Bu liste AL/SAT garantisi değildir."
 
         await update.message.reply_text(text)
 
     except Exception as e:
         print("TARA HATASI:", repr(e))
+
         await update.message.reply_text(
             "⚠️ Tarama sırasında hata oluştu."
         )
 
 
+# =========================
+# DÜNYA HABERLERİ
+# =========================
+
 async def haber(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📰 Dünya haberleri modülü hazırlanıyor."
+        "🌍 Güvenilir dünya haberleri taranıyor..."
     )
 
+    query = (
+        "(world OR global OR international) "
+        "(domain:reuters.com OR "
+        "domain:apnews.com OR "
+        "domain:bbc.com OR "
+        "domain:dw.com)"
+    )
+
+    news = get_news(query, 5)
+
+    await update.message.reply_text(
+        news_text(
+            "🌍 ALFRED — DÜNYA HABERLERİ",
+            news
+        )
+    )
+
+
+# =========================
+# TÜRKİYE HABERLERİ
+# =========================
 
 async def haberturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🇹🇷 Türkiye haberleri modülü hazırlanıyor."
+        "🇹🇷 Güvenilir Türkiye haberleri taranıyor..."
     )
 
+    query = (
+        "(Turkey OR Türkiye) "
+        "(domain:aa.com.tr OR "
+        "domain:reuters.com OR "
+        "domain:bbc.com OR "
+        "domain:dw.com)"
+    )
+
+    news = get_news(query, 5)
+
+    await update.message.reply_text(
+        news_text(
+            "🇹🇷 ALFRED — TÜRKİYE HABERLERİ",
+            news
+        )
+    )
+
+
+# =========================
+# KRİPTO HABERLERİ
+# =========================
 
 async def haberkripto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "₿ Kripto haberleri modülü hazırlanıyor."
+        "₿ Güvenilir kripto haberleri taranıyor..."
     )
 
+    query = (
+        "(Bitcoin OR Ethereum OR crypto OR cryptocurrency OR blockchain) "
+        "(domain:reuters.com OR "
+        "domain:coindesk.com OR "
+        "domain:theblock.co OR "
+        "domain:decrypt.co)"
+    )
+
+    news = get_news(query, 5)
+
+    await update.message.reply_text(
+        news_text(
+            "₿ ALFRED — KRİPTO HABERLERİ",
+            news
+        )
+    )
+
+
+# =========================
+# ARAÇLAR
+# =========================
 
 async def havadurumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -216,6 +399,10 @@ async def ozetcikar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# =========================
+# ALFRED
+# =========================
+
 async def sor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🧠 Alfred AI soru-cevap modülü hazırlanıyor."
@@ -230,9 +417,15 @@ async def radar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# =========================
+# BOT
+# =========================
+
 def main():
     if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN bulunamadı.")
+        raise RuntimeError(
+            "TELEGRAM_BOT_TOKEN bulunamadı."
+        )
 
     app = Application.builder().token(TOKEN).build()
 
@@ -255,6 +448,7 @@ def main():
     app.add_handler(CommandHandler("radar", radar))
 
     print("🦇 Alfred 2.0 aktif.")
+
     app.run_polling()
 
 
