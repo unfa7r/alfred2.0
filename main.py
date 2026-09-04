@@ -4,21 +4,32 @@ from zoneinfo import ZoneInfo
 
 import requests
 import feedparser
+from langdetect import detect, LangDetectException
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes
+)
 
+
+# =========================================================
+# AYARLAR
+# =========================================================
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
+
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+
 TRANSLATE_URL = "https://api.mymemory.translated.net/get"
 
 
-# =========================
+# =========================================================
 # BINANCE
-# =========================
+# =========================================================
 
 def get_price(symbol):
     try:
@@ -29,6 +40,7 @@ def get_price(symbol):
         )
 
         r.raise_for_status()
+
         data = r.json()
 
         if "lastPrice" not in data:
@@ -36,7 +48,9 @@ def get_price(symbol):
             return None
 
         price = float(data["lastPrice"])
-        change = float(data.get("priceChangePercent", 0))
+        change = float(
+            data.get("priceChangePercent", 0)
+        )
 
         return price, change
 
@@ -45,21 +59,78 @@ def get_price(symbol):
         return None
 
 
-# =========================
-# RSS HABER MOTORU
-# =========================
+# =========================================================
+# RSS HABERLER
+# =========================================================
+
+WORLD_FEEDS = [
+    (
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "BBC"
+    ),
+    (
+        "https://rss.dw.com/rdf/rss-en-world",
+        "DW"
+    ),
+    (
+        "https://apnews.com/hub/world-news?output=1",
+        "AP"
+    )
+]
+
+
+TURKEY_FEEDS = [
+    (
+        "https://www.aa.com.tr/tr/rss/default?cat=guncel",
+        "Anadolu Ajansı"
+    ),
+    (
+        "https://feeds.bbci.co.uk/turkce/rss.xml",
+        "BBC Türkçe"
+    ),
+    (
+        "https://rss.dw.com/rdf/rss-tur",
+        "DW Türkçe"
+    )
+]
+
+
+CRYPTO_FEEDS = [
+    (
+        "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "CoinDesk"
+    ),
+    (
+        "https://decrypt.co/feed",
+        "Decrypt"
+    ),
+    (
+        "https://www.theblock.co/rss.xml",
+        "The Block"
+    )
+]
+
 
 def get_rss_news(feeds, limit=5):
     results = []
     seen = set()
 
     for feed_url, source_name in feeds:
+
         try:
             feed = feedparser.parse(feed_url)
 
             for entry in feed.entries:
-                title = entry.get("title", "").strip()
-                link = entry.get("link", "").strip()
+
+                title = entry.get(
+                    "title",
+                    ""
+                ).strip()
+
+                link = entry.get(
+                    "link",
+                    ""
+                ).strip()
 
                 if not title or not link:
                     continue
@@ -84,54 +155,79 @@ def get_rss_news(feeds, limit=5):
     return results[:limit]
 
 
-def news_text(header, news):
+def news_text(title, feeds):
+    news = get_rss_news(
+        feeds,
+        limit=5
+    )
+
     if not news:
         return (
-            f"{header}\n\n"
-            "⚠️ Şu anda haber alınamadı.\n\n"
-            "🦇 Alfred haber servisi tekrar denenebilir."
+            f"📰 {title}\n\n"
+            "Şu anda haber alınamadı."
         )
 
-    text = f"{header}\n"
-    text += "━━━━━━━━━━━━━━\n\n"
+    text = f"📰 {title}\n\n"
 
-    for i, article in enumerate(news, 1):
-        text += f"{i}. {article['title']}\n"
-        text += f"🏛 Kaynak: {article['domain']}\n"
-        text += f"🔗 {article['url']}\n\n"
+    for i, item in enumerate(news, 1):
 
-    text += "━━━━━━━━━━━━━━\n"
-    text += "🦇 Alfred 2.0"
+        text += (
+            f"{i}. {item['title']}\n"
+            f"📡 {item['domain']}\n"
+            f"🔗 {item['url']}\n\n"
+        )
 
     return text
 
 
-# =========================
+# =========================================================
 # HAVA DURUMU
-# =========================
+# =========================================================
 
 def weather_description(code):
+
     descriptions = {
+
         0: "☀️ Açık",
+
         1: "🌤️ Çoğunlukla açık",
+
         2: "⛅ Parçalı bulutlu",
+
         3: "☁️ Kapalı",
+
         45: "🌫️ Sisli",
+
         48: "🌫️ Kırağılı sis",
+
         51: "🌦️ Hafif çisenti",
+
         53: "🌦️ Çisenti",
+
         55: "🌧️ Yoğun çisenti",
+
         61: "🌧️ Hafif yağmur",
+
         63: "🌧️ Yağmur",
+
         65: "🌧️ Kuvvetli yağmur",
+
         71: "🌨️ Hafif kar",
+
         73: "🌨️ Kar",
+
         75: "❄️ Yoğun kar",
+
         80: "🌦️ Hafif sağanak",
+
         81: "🌧️ Sağanak",
+
         82: "⛈️ Kuvvetli sağanak",
+
         95: "⛈️ Gök gürültülü fırtına",
+
         96: "⛈️ Dolu ihtimali",
+
         99: "⛈️ Kuvvetli dolu"
     }
 
@@ -142,10 +238,15 @@ def weather_description(code):
 
 
 def get_istanbul_weather():
+
     try:
+
         params = {
+
             "latitude": 41.0082,
+
             "longitude": 28.9784,
+
             "current": (
                 "temperature_2m,"
                 "relative_humidity_2m,"
@@ -154,8 +255,11 @@ def get_istanbul_weather():
                 "weather_code,"
                 "wind_speed_10m"
             ),
+
             "temperature_unit": "celsius",
+
             "wind_speed_unit": "kmh",
+
             "timezone": "Europe/Istanbul"
         }
 
@@ -170,226 +274,232 @@ def get_istanbul_weather():
         data = r.json()
 
         if "current" not in data:
-            print("HAVA VERİ HATASI:", data)
+
+            print(
+                "HAVA VERİ HATASI:",
+                data
+            )
+
             return None
 
         return data["current"]
 
     except Exception as e:
-        print("HAVA DURUMU HATASI:", repr(e))
+
+        print(
+            "HAVA DURUMU HATASI:",
+            repr(e)
+        )
+
         return None
 
 
-async def havadurumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🌤️ İstanbul hava durumu alınıyor...\n"
-        "🦇 Alfred kontrol ediyor."
-    )
+# =========================================================
+# 30 DİLLİ ÇEVİRİ SİSTEMİ
+# =========================================================
 
-    weather = get_istanbul_weather()
+LANGUAGE_NAMES = {
 
-    if weather is None:
-        await update.message.reply_text(
-            "⚠️ İstanbul hava durumu alınamadı."
-        )
-        return
+    "tr": "🇹🇷 Türkçe",
 
-    temperature = weather.get("temperature_2m")
-    humidity = weather.get("relative_humidity_2m")
-    apparent = weather.get("apparent_temperature")
-    precipitation = weather.get("precipitation")
-    wind = weather.get("wind_speed_10m")
-    code = weather.get("weather_code")
+    "en": "🇬🇧 İngilizce",
 
-    description = weather_description(code)
+    "de": "🇩🇪 Almanca",
 
-    now = datetime.now(
-        ZoneInfo("Europe/Istanbul")
-    )
+    "fr": "🇫🇷 Fransızca",
 
-    day_names = [
-        "Pazartesi",
-        "Salı",
-        "Çarşamba",
-        "Perşembe",
-        "Cuma",
-        "Cumartesi",
-        "Pazar"
-    ]
+    "es": "🇪🇸 İspanyolca",
 
-    month_names = [
-        "Ocak",
-        "Şubat",
-        "Mart",
-        "Nisan",
-        "Mayıs",
-        "Haziran",
-        "Temmuz",
-        "Ağustos",
-        "Eylül",
-        "Ekim",
-        "Kasım",
-        "Aralık"
-    ]
+    "it": "🇮🇹 İtalyanca",
 
-    day_name = day_names[now.weekday()]
-    month_name = month_names[now.month - 1]
+    "pt": "🇵🇹 Portekizce",
 
-    current_time = (
-        f"{day_name} — "
-        f"{now.day} {month_name} {now.year} — "
-        f"{now.strftime('%H:%M')}"
-    )
+    "ru": "🇷🇺 Rusça",
 
-    text = (
-        "🌤️ ALFRED — İSTANBUL HAVA DURUMU\n\n"
-        "📍 İstanbul\n"
-        f"{description}\n\n"
-        f"📅 {current_time}\n\n"
-        f"🌡️ Sıcaklık: {temperature:.1f}°C\n"
-        f"🌡️ Hissedilen: {apparent:.1f}°C\n"
-        f"💧 Nem: %{humidity}\n"
-        f"💨 Rüzgâr: {wind:.1f} km/sa\n"
-        f"🌧️ Yağış: {precipitation:.1f} mm\n\n"
-        "━━━━━━━━━━━━━━\n"
-        "🦇 Alfred 2.0"
-    )
+    "zh-CN": "🇨🇳 Çince",
 
-    await update.message.reply_text(text)
+    "ja": "🇯🇵 Japonca",
+
+    "ko": "🇰🇷 Korece",
+
+    "ar": "🇸🇦 Arapça",
+
+    "hi": "🇮🇳 Hintçe",
+
+    "nl": "🇳🇱 Felemenkçe",
+
+    "pl": "🇵🇱 Lehçe",
+
+    "uk": "🇺🇦 Ukraynaca",
+
+    "th": "🇹🇭 Tayca",
+
+    "vi": "🇻🇳 Vietnamca",
+
+    "id": "🇮🇩 Endonezce",
+
+    "ms": "🇲🇾 Malayca",
+
+    "sv": "🇸🇪 İsveççe",
+
+    "no": "🇳🇴 Norveççe",
+
+    "da": "🇩🇰 Danca",
+
+    "fi": "🇫🇮 Fince",
+
+    "cs": "🇨🇿 Çekçe",
+
+    "el": "🇬🇷 Yunanca",
+
+    "hu": "🇭🇺 Macarca",
+
+    "ro": "🇷🇴 Romence",
+
+    "he": "🇮🇱 İbranice",
+
+    "sk": "🇸🇰 Slovakça"
+}
 
 
-# =========================
-# BASİT DİL TESPİTİ
-# =========================
+# MyMemory için dil kodları
+MYMEMORY_CODES = {
+
+    "tr": "tr",
+
+    "en": "en",
+
+    "de": "de",
+
+    "fr": "fr",
+
+    "es": "es",
+
+    "it": "it",
+
+    "pt": "pt",
+
+    "ru": "ru",
+
+    "zh-CN": "zh-CN",
+
+    "ja": "ja",
+
+    "ko": "ko",
+
+    "ar": "ar",
+
+    "hi": "hi",
+
+    "nl": "nl",
+
+    "pl": "pl",
+
+    "uk": "uk",
+
+    "th": "th",
+
+    "vi": "vi",
+
+    "id": "id",
+
+    "ms": "ms",
+
+    "sv": "sv",
+
+    "no": "no",
+
+    "da": "da",
+
+    "fi": "fi",
+
+    "cs": "cs",
+
+    "el": "el",
+
+    "hu": "hu",
+
+    "ro": "ro",
+
+    "he": "he",
+
+    "sk": "sk"
+}
+
 
 def detect_language(text):
-    lower_text = text.lower()
 
-    # Türkçe karakterler ve yaygın Türkçe kelimeler
-    turkish_chars = "çğıöşü"
-    turkish_words = [
-        " ve ",
-        " bir ",
-        " için ",
-        " nasıl ",
-        " bugün ",
-        " benim ",
-        " sen ",
-        " ben ",
-        " değil ",
-        " olan ",
-        " çok ",
-        " ne ",
-        " mi ",
-        " mı ",
-        " mu ",
-        " mü "
-    ]
+    try:
 
-    if (
-        any(char in lower_text for char in turkish_chars)
-        or any(word in f" {lower_text} " for word in turkish_words)
-    ):
-        return "tr"
+        detected = detect(text)
 
-    # Almanca
-    german_words = [
-        " der ",
-        " die ",
-        " das ",
-        " und ",
-        " ist ",
-        " nicht ",
-        " ich ",
-        " du ",
-        " wie "
-    ]
+        # langdetect'in bazı kodlarını
+        # sistemimizde kullanılan kodlara çevir
 
-    if any(word in f" {lower_text} " for word in german_words):
-        return "de"
+        if detected == "zh":
+            return "zh-CN"
 
-    # Fransızca
-    french_words = [
-        " le ",
-        " la ",
-        " les ",
-        " et ",
-        " est ",
-        " une ",
-        " un ",
-        " je ",
-        " vous ",
-        " comment "
-    ]
+        if detected in MYMEMORY_CODES:
+            return detected
 
-    if any(word in f" {lower_text} " for word in french_words):
-        return "fr"
+        # Desteklemediğimiz bir dil algılanırsa
+        # İngilizce varsaymak yerine hata döndür
 
-    # İspanyolca
-    spanish_words = [
-        " el ",
-        " la ",
-        " los ",
-        " las ",
-        " y ",
-        " es ",
-        " una ",
-        " un ",
-        " yo ",
-        " cómo "
-    ]
+        return None
 
-    if any(word in f" {lower_text} " for word in spanish_words):
-        return "es"
+    except LangDetectException as e:
 
-    # İtalyanca
-    italian_words = [
-        " il ",
-        " lo ",
-        " la ",
-        " gli ",
-        " e ",
-        " è ",
-        " una ",
-        " un ",
-        " io ",
-        " come "
-    ]
+        print(
+            "DİL ALGILAMA HATASI:",
+            repr(e)
+        )
 
-    if any(word in f" {lower_text} " for word in italian_words):
-        return "it"
+        return None
 
-    # Rusça Kiril alfabesi
-    if any(
-        "а" <= char <= "я"
-        for char in lower_text
-    ):
-        return "ru"
+    except Exception as e:
 
-    # Varsayılan: İngilizce
-    return "en"
+        print(
+            "DİL ALGILAMA HATASI:",
+            repr(e)
+        )
 
+        return None
 
-# =========================
-# ÇEVİRİ
-# =========================
 
 def translate_to_turkish(text):
+
     try:
+
         source_language = detect_language(text)
 
-        # Metin zaten Türkçeyse çeviri yapma
+        if source_language is None:
+            return None, None
+
         if source_language == "tr":
-            return text
+            return text, source_language
+
+        source_code = MYMEMORY_CODES.get(
+            source_language
+        )
+
+        if not source_code:
+            return None, source_language
 
         params = {
+
             "q": text,
-            "langpair": f"{source_language}|tr"
+
+            "langpair": (
+                f"{source_code}|tr"
+            )
         }
 
         r = requests.get(
+
             TRANSLATE_URL,
+
             params=params,
+
             timeout=20
         )
 
@@ -408,419 +518,705 @@ def translate_to_turkish(text):
         ).strip()
 
         if not translated:
-            print("ÇEVİRİ VERİ HATASI:", data)
-            return None
 
-        return translated
+            print(
+                "ÇEVİRİ VERİ HATASI:",
+                data
+            )
+
+            return None, source_language
+
+        return translated, source_language
 
     except Exception as e:
-        print("ÇEVİRİ HATASI:", repr(e))
-        return None
 
-
-async def cevir(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text(
-            "🌍 ALFRED ÇEVİRİ\n\n"
-            "Çevirmek istediğin metni /cevir komutundan "
-            "sonra yaz.\n\n"
-            "Örnek:\n"
-            "/cevir Hello, how are you?"
+        print(
+            "ÇEVİRİ HATASI:",
+            repr(e)
         )
-        return
 
-    text = " ".join(context.args)
+        return None, None
 
-    await update.message.reply_text(
-        "🌍 Metin çevriliyor...\n"
-        "🦇 Alfred çalışıyor."
-    )
 
-    source_language = detect_language(text)
+# =========================================================
+# TELEGRAM KOMUTLARI
+# =========================================================
 
-    translated = translate_to_turkish(text)
-
-    if translated is None:
-        await update.message.reply_text(
-            "⚠️ Çeviri yapılamadı.\n\n"
-            "Lütfen biraz sonra tekrar dene."
-        )
-        return
-
-    language_names = {
-        "en": "🇬🇧 İngilizce",
-        "de": "🇩🇪 Almanca",
-        "fr": "🇫🇷 Fransızca",
-        "es": "🇪🇸 İspanyolca",
-        "it": "🇮🇹 İtalyanca",
-        "ru": "🇷🇺 Rusça",
-        "tr": "🇹🇷 Türkçe"
-    }
-
-    detected_name = language_names.get(
-        source_language,
-        source_language.upper()
-    )
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
-        "🌍 ALFRED — ÇEVİRİ\n\n"
-        f"🔎 Algılanan dil: {detected_name}\n\n"
-        f"📝 Orijinal:\n{text}\n\n"
-        "🇹🇷 Türkçe:\n"
-        f"{translated}"
+
+        "🦇 ALFRED 2.0\n\n"
+        "Hoş geldin.\n"
+        "Sisteme hazırım.\n\n"
+        "Komutları görmek için:\n"
+        "/yardim"
     )
 
 
-# =========================
-# SISTEM
-# =========================
+async def yardim(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🦇 Alfred 2.0 aktif.\n\n"
-        "Komutları görmek için /yardim yaz."
-    )
-
-
-async def yardim(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    text = (
         "🦇 ALFRED 2.0 KOMUTLARI\n\n"
+
         "📈 PİYASA\n"
         "/fiyatbtc\n"
         "/fiyatsol\n"
         "/tara\n\n"
+
         "📰 HABERLER\n"
         "/haber\n"
         "/haberturk\n"
         "/haberkripto\n\n"
+
         "🌍 ARAÇLAR\n"
         "/havadurumu\n"
         "/cevir\n"
         "/ozetcikar\n\n"
+
         "🧠 ALFRED\n"
         "/sor\n"
         "/radar\n\n"
+
         "⚙️ SİSTEM\n"
         "/start\n"
         "/yardim"
     )
 
+    await update.message.reply_text(text)
 
-# =========================
+
+# =========================================================
 # BTC
-# =========================
+# =========================================================
 
-async def fiyatbtc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def fiyatbtc(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     result = get_price("BTCUSDT")
 
     if result is None:
+
         await update.message.reply_text(
             "⚠️ BTC fiyatı alınamadı."
         )
+
         return
 
     price, change = result
 
     await update.message.reply_text(
-        f"₿ BTC / USDT\n\n"
+
+        "₿ BITCOIN\n\n"
+
         f"💰 Fiyat: ${price:,.2f}\n"
         f"📊 24s: {change:+.2f}%"
     )
 
 
-# =========================
+# =========================================================
 # SOL
-# =========================
+# =========================================================
 
-async def fiyatsol(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def fiyatsol(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     result = get_price("SOLUSDT")
 
     if result is None:
+
         await update.message.reply_text(
             "⚠️ SOL fiyatı alınamadı."
         )
+
         return
 
     price, change = result
 
     await update.message.reply_text(
-        f"◎ SOL / USDT\n\n"
+
+        "◎ SOLANA\n\n"
+
         f"💰 Fiyat: ${price:,.2f}\n"
         f"📊 24s: {change:+.2f}%"
     )
 
 
-# =========================
-# TARA
-# =========================
+# =========================================================
+# TARAMA
+# =========================================================
 
-async def tara(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def tara(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     await update.message.reply_text(
-        "🔎 Binance piyasası taranıyor...\n"
-        "🦇 Alfred analiz yapıyor."
+        "🔎 Alfred piyasayı tarıyor...\n"
+        "🦇 Birkaç saniye."
     )
 
     try:
+
         r = requests.get(
             BINANCE_URL,
-            timeout=20
+            timeout=15
         )
 
         r.raise_for_status()
+
         data = r.json()
 
-        if not isinstance(data, list):
-            print("TARA VERİ HATASI:", data)
-            await update.message.reply_text(
-                "⚠️ Binance tarama verisi alınamadı."
+        usdt_pairs = [
+
+            x for x in data
+
+            if x.get("symbol", "").endswith(
+                "USDT"
             )
-            return
-
-        coins = []
-
-        excluded = [
-            "USDCUSDT",
-            "FDUSDUSDT",
-            "TUSDUSDT",
-            "USDTUSDT",
-            "DAIUSDT"
+            and float(
+                x.get("quoteVolume", 0)
+            ) > 1000000
         ]
 
-        for item in data:
-            symbol = item.get("symbol", "")
+        usdt_pairs.sort(
 
-            if not symbol.endswith("USDT"):
-                continue
-
-            if symbol in excluded:
-                continue
-
-            try:
-                change = float(
-                    item.get("priceChangePercent", 0)
+            key=lambda x:
+            float(
+                x.get(
+                    "priceChangePercent",
+                    0
                 )
+            ),
 
-                volume = float(
-                    item.get("quoteVolume", 0)
-                )
-
-                price = float(
-                    item.get("lastPrice", 0)
-                )
-
-            except (TypeError, ValueError):
-                continue
-
-            if volume < 1000000:
-                continue
-
-            if change <= 0:
-                continue
-
-            coins.append({
-                "symbol": symbol.replace("USDT", ""),
-                "change": change,
-                "volume": volume,
-                "price": price
-            })
-
-        coins.sort(
-            key=lambda x: x["change"],
             reverse=True
         )
 
-        top = coins[:5]
+        top = usdt_pairs[:5]
 
         if not top:
+
             await update.message.reply_text(
-                "⚠️ Uygun sinyal bulunamadı."
+                "⚠️ Tarama sonucu bulunamadı."
             )
+
             return
 
-        text = "🦇 ALFRED 2.0 RADAR\n\n"
-        text += "📈 En güçlü hareketler:\n\n"
+        text = (
+            "📡 ALFRED — PİYASA TARAMASI\n\n"
+        )
 
         for i, coin in enumerate(top, 1):
-            text += (
-                f"{i}. 🔥 {coin['symbol']}\n"
-                f"📈 24s: +{coin['change']:.2f}%\n"
-                f"💰 Hacim: ${coin['volume']:,.0f}\n"
-                f"💵 Fiyat: ${coin['price']:.8f}\n\n"
+
+            symbol = coin["symbol"]
+
+            change = float(
+                coin.get(
+                    "priceChangePercent",
+                    0
+                )
             )
 
-        text += "⚠️ Bu liste AL/SAT garantisi değildir."
+            price = float(
+                coin.get(
+                    "lastPrice",
+                    0
+                )
+            )
 
-        await update.message.reply_text(text)
+            text += (
 
-    except Exception as e:
-        print("TARA HATASI:", repr(e))
+                f"{i}. {symbol}\n"
+
+                f"💰 ${price:g}\n"
+
+                f"📈 24s: {change:+.2f}%\n\n"
+            )
+
+        text += (
+            "⚠️ Bu liste garanti kazanç anlamına "
+            "gelmez. Piyasa hızlı değişebilir."
+        )
 
         await update.message.reply_text(
-            "⚠️ Tarama sırasında hata oluştu."
+            text
+        )
+
+    except Exception as e:
+
+        print(
+            "TARAMA HATASI:",
+            repr(e)
+        )
+
+        await update.message.reply_text(
+            "⚠️ Piyasa taraması başarısız."
         )
 
 
-# =========================
-# DÜNYA HABERLERİ
-# =========================
+# =========================================================
+# HABERLER
+# =========================================================
 
-async def haber(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def haber(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     await update.message.reply_text(
-        "🌍 Dünya haberleri taranıyor..."
+
+        news_text(
+            "DÜNYA HABERLERİ",
+            WORLD_FEEDS
+        )
     )
 
-    feeds = [
-        (
-            "https://feeds.bbci.co.uk/news/world/rss.xml",
-            "BBC"
-        ),
-        (
-            "https://rss.dw.com/rdf/rss-en-world",
-            "DW"
-        ),
-        (
-            "https://apnews.com/hub/world-news?output=1",
-            "AP"
+
+async def haberturk(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    await update.message.reply_text(
+
+        news_text(
+            "TÜRKİYE HABERLERİ",
+            TURKEY_FEEDS
         )
+    )
+
+
+async def haberkripto(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    await update.message.reply_text(
+
+        news_text(
+            "KRİPTO HABERLERİ",
+            CRYPTO_FEEDS
+        )
+    )
+
+
+# =========================================================
+# HAVA DURUMU
+# =========================================================
+
+async def havadurumu(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    weather = get_istanbul_weather()
+
+    if weather is None:
+
+        await update.message.reply_text(
+            "⚠️ İstanbul hava durumu alınamadı."
+        )
+
+        return
+
+    now = datetime.now(
+        ZoneInfo("Europe/Istanbul")
+    )
+
+    day_names = [
+
+        "Pazartesi",
+        "Salı",
+        "Çarşamba",
+        "Perşembe",
+        "Cuma",
+        "Cumartesi",
+        "Pazar"
     ]
 
-    news = get_rss_news(feeds, 5)
+    month_names = [
 
-    await update.message.reply_text(
-        news_text(
-            "🌍 ALFRED — DÜNYA HABERLERİ",
-            news
-        )
-    )
-
-
-# =========================
-# TÜRKİYE HABERLERİ
-# =========================
-
-async def haberturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🇹🇷 Türkiye haberleri taranıyor..."
-    )
-
-    feeds = [
-        (
-            "https://www.aa.com.tr/tr/rss/default?cat=guncel",
-            "Anadolu Ajansı"
-        ),
-        (
-            "https://feeds.bbci.co.uk/turkce/rss.xml",
-            "BBC Türkçe"
-        ),
-        (
-            "https://rss.dw.com/rdf/rss-tur",
-            "DW Türkçe"
-        )
+        "Ocak",
+        "Şubat",
+        "Mart",
+        "Nisan",
+        "Mayıs",
+        "Haziran",
+        "Temmuz",
+        "Ağustos",
+        "Eylül",
+        "Ekim",
+        "Kasım",
+        "Aralık"
     ]
 
-    news = get_rss_news(feeds, 5)
-
-    await update.message.reply_text(
-        news_text(
-            "🇹🇷 ALFRED — TÜRKİYE HABERLERİ",
-            news
-        )
-    )
-
-
-# =========================
-# KRİPTO HABERLERİ
-# =========================
-
-async def haberkripto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "₿ Kripto haberleri taranıyor..."
-    )
-
-    feeds = [
-        (
-            "https://www.coindesk.com/arc/outboundfeeds/rss/",
-            "CoinDesk"
-        ),
-        (
-            "https://decrypt.co/feed",
-            "Decrypt"
-        ),
-        (
-            "https://www.theblock.co/rss.xml",
-            "The Block"
-        )
+    day_name = day_names[
+        now.weekday()
     ]
 
-    news = get_rss_news(feeds, 5)
+    month_name = month_names[
+        now.month - 1
+    ]
+
+    current_time = (
+
+        f"{day_name} — "
+        f"{now.day} {month_name} "
+        f"{now.year} — "
+        f"{now.strftime('%H:%M')}"
+    )
+
+    temperature = weather.get(
+        "temperature_2m"
+    )
+
+    apparent = weather.get(
+        "apparent_temperature"
+    )
+
+    humidity = weather.get(
+        "relative_humidity_2m"
+    )
+
+    precipitation = weather.get(
+        "precipitation"
+    )
+
+    wind = weather.get(
+        "wind_speed_10m"
+    )
+
+    code = weather.get(
+        "weather_code"
+    )
+
+    description = weather_description(
+        code
+    )
 
     await update.message.reply_text(
-        news_text(
-            "₿ ALFRED — KRİPTO HABERLERİ",
-            news
-        )
+
+        "🌤️ İSTANBUL HAVA DURUMU\n\n"
+
+        f"📅 {current_time}\n\n"
+
+        f"{description}\n\n"
+
+        f"🌡️ Sıcaklık: "
+        f"{temperature}°C\n"
+
+        f"🤚 Hissedilen: "
+        f"{apparent}°C\n"
+
+        f"💧 Nem: "
+        f"%{humidity}\n"
+
+        f"🌧️ Yağış: "
+        f"{precipitation} mm\n"
+
+        f"💨 Rüzgar: "
+        f"{wind} km/sa"
     )
 
 
-# =========================
+# =========================================================
+# ÇEVİRİ
+# =========================================================
+
+async def cevir(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not context.args:
+
+        await update.message.reply_text(
+
+            "🌍 ALFRED ÇEVİRİ\n\n"
+
+            "Çevirmek istediğin metni "
+            "/cevir komutundan sonra yaz.\n\n"
+
+            "Örnek:\n"
+
+            "/cevir Hello, how are you?"
+        )
+
+        return
+
+    text = " ".join(
+        context.args
+    )
+
+    await update.message.reply_text(
+
+        "🌍 Metin analiz ediliyor...\n"
+        "🦇 Alfred çalışıyor."
+    )
+
+    translated, source_language = (
+        translate_to_turkish(text)
+    )
+
+    if translated is None:
+
+        await update.message.reply_text(
+
+            "⚠️ Çeviri yapılamadı.\n\n"
+
+            "Metnin dili desteklenen 30 dil "
+            "arasında olmayabilir veya "
+            "çeviri servisi geçici olarak "
+            "yanıt vermiyor olabilir."
+        )
+
+        return
+
+    detected_name = LANGUAGE_NAMES.get(
+
+        source_language,
+
+        source_language
+        if source_language
+        else "Bilinmeyen dil"
+    )
+
+    await update.message.reply_text(
+
+        "🌍 ALFRED — ÇEVİRİ\n\n"
+
+        f"🔎 Algılanan dil: "
+        f"{detected_name}\n\n"
+
+        f"📝 Orijinal:\n"
+        f"{text}\n\n"
+
+        "🇹🇷 Türkçe:\n"
+        f"{translated}"
+    )
+
+
+# =========================================================
 # ÖZET
-# =========================
+# =========================================================
 
-async def ozetcikar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ozetcikar(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not context.args:
+
+        await update.message.reply_text(
+
+            "📝 ALFRED ÖZET\n\n"
+
+            "Özetlemek istediğin metni "
+            "komuttan sonra yaz.\n\n"
+
+            "Örnek:\n"
+            "/ozetcikar Buraya uzun metni yaz..."
+        )
+
+        return
+
+    text = " ".join(
+        context.args
+    )
+
     await update.message.reply_text(
-        "📝 Özet çıkarma modülü hazırlanıyor."
+
+        "📝 Metin alındı.\n\n"
+
+        "🦇 AI özet sistemi henüz "
+        "bağlanmadı."
     )
 
 
-# =========================
-# ALFRED
-# =========================
+# =========================================================
+# SOR
+# =========================================================
 
-async def sor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sor(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not context.args:
+
+        await update.message.reply_text(
+
+            "🧠 ALFRED SORU SİSTEMİ\n\n"
+
+            "Örnek:\n"
+            "/sor Bitcoin nedir?"
+        )
+
+        return
+
+    question = " ".join(
+        context.args
+    )
+
     await update.message.reply_text(
-        "🧠 Alfred AI soru-cevap modülü hazırlanıyor."
+
+        "🧠 Alfred sorunu aldı.\n\n"
+
+        f"❓ {question}\n\n"
+
+        "AI cevap sistemi henüz "
+        "bağlanmadı."
     )
 
 
-async def radar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================================================
+# RADAR
+# =========================================================
+
+async def radar(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     await update.message.reply_text(
-        "📡 Radar aktif.\n\n"
-        "🌍 Olağandışı gelişmeler ve piyasa anomalileri "
-        "modülü hazırlanıyor."
+
+        "📡 ALFRED RADAR\n\n"
+
+        "🌍 Küresel olay radarı hazır.\n\n"
+
+        "Gelişmiş anomali ve olay taraması "
+        "bir sonraki aşamada bağlanacak."
     )
 
 
-# =========================
+# =========================================================
 # BOT
-# =========================
+# =========================================================
 
 def main():
+
     if not TOKEN:
+
         raise RuntimeError(
             "TELEGRAM_BOT_TOKEN bulunamadı."
         )
 
-    app = Application.builder().token(TOKEN).build()
+    app = (
+        Application
+        .builder()
+        .token(TOKEN)
+        .build()
+    )
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("yardim", yardim))
+    # Sistem
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
 
-    app.add_handler(CommandHandler("fiyatbtc", fiyatbtc))
-    app.add_handler(CommandHandler("fiyatsol", fiyatsol))
-    app.add_handler(CommandHandler("tara", tara))
+    app.add_handler(
+        CommandHandler(
+            "yardim",
+            yardim
+        )
+    )
 
-    app.add_handler(CommandHandler("haber", haber))
-    app.add_handler(CommandHandler("haberturk", haberturk))
-    app.add_handler(CommandHandler("haberkripto", haberkripto))
+    # Piyasa
+    app.add_handler(
+        CommandHandler(
+            "fiyatbtc",
+            fiyatbtc
+        )
+    )
 
-    app.add_handler(CommandHandler("havadurumu", havadurumu))
-    app.add_handler(CommandHandler("cevir", cevir))
-    app.add_handler(CommandHandler("ozetcikar", ozetcikar))
+    app.add_handler(
+        CommandHandler(
+            "fiyatsol",
+            fiyatsol
+        )
+    )
 
-    app.add_handler(CommandHandler("sor", sor))
-    app.add_handler(CommandHandler("radar", radar))
+    app.add_handler(
+        CommandHandler(
+            "tara",
+            tara
+        )
+    )
 
-    print("🦇 Alfred 2.0 aktif.")
+    # Haberler
+    app.add_handler(
+        CommandHandler(
+            "haber",
+            haber
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "haberturk",
+            haberturk
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "haberkripto",
+            haberkripto
+        )
+    )
+
+    # Araçlar
+    app.add_handler(
+        CommandHandler(
+            "havadurumu",
+            havadurumu
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "cevir",
+            cevir
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "ozetcikar",
+            ozetcikar
+        )
+    )
+
+    # Alfred
+    app.add_handler(
+        CommandHandler(
+            "sor",
+            sor
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "radar",
+            radar
+        )
+    )
+
+    print(
+        "🦇 Alfred 2.0 çalışıyor..."
+    )
 
     app.run_polling()
 
