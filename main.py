@@ -259,14 +259,132 @@ async def havadurumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
+# BASİT DİL TESPİTİ
+# =========================
+
+def detect_language(text):
+    lower_text = text.lower()
+
+    # Türkçe karakterler ve yaygın Türkçe kelimeler
+    turkish_chars = "çğıöşü"
+    turkish_words = [
+        " ve ",
+        " bir ",
+        " için ",
+        " nasıl ",
+        " bugün ",
+        " benim ",
+        " sen ",
+        " ben ",
+        " değil ",
+        " olan ",
+        " çok ",
+        " ne ",
+        " mi ",
+        " mı ",
+        " mu ",
+        " mü "
+    ]
+
+    if (
+        any(char in lower_text for char in turkish_chars)
+        or any(word in f" {lower_text} " for word in turkish_words)
+    ):
+        return "tr"
+
+    # Almanca
+    german_words = [
+        " der ",
+        " die ",
+        " das ",
+        " und ",
+        " ist ",
+        " nicht ",
+        " ich ",
+        " du ",
+        " wie "
+    ]
+
+    if any(word in f" {lower_text} " for word in german_words):
+        return "de"
+
+    # Fransızca
+    french_words = [
+        " le ",
+        " la ",
+        " les ",
+        " et ",
+        " est ",
+        " une ",
+        " un ",
+        " je ",
+        " vous ",
+        " comment "
+    ]
+
+    if any(word in f" {lower_text} " for word in french_words):
+        return "fr"
+
+    # İspanyolca
+    spanish_words = [
+        " el ",
+        " la ",
+        " los ",
+        " las ",
+        " y ",
+        " es ",
+        " una ",
+        " un ",
+        " yo ",
+        " cómo "
+    ]
+
+    if any(word in f" {lower_text} " for word in spanish_words):
+        return "es"
+
+    # İtalyanca
+    italian_words = [
+        " il ",
+        " lo ",
+        " la ",
+        " gli ",
+        " e ",
+        " è ",
+        " una ",
+        " un ",
+        " io ",
+        " come "
+    ]
+
+    if any(word in f" {lower_text} " for word in italian_words):
+        return "it"
+
+    # Rusça Kiril alfabesi
+    if any(
+        "а" <= char <= "я"
+        for char in lower_text
+    ):
+        return "ru"
+
+    # Varsayılan: İngilizce
+    return "en"
+
+
+# =========================
 # ÇEVİRİ
 # =========================
 
 def translate_to_turkish(text):
     try:
+        source_language = detect_language(text)
+
+        # Metin zaten Türkçeyse çeviri yapma
+        if source_language == "tr":
+            return text
+
         params = {
             "q": text,
-            "langpair": "aut|tr"
+            "langpair": f"{source_language}|tr"
         }
 
         r = requests.get(
@@ -279,7 +397,11 @@ def translate_to_turkish(text):
 
         data = r.json()
 
-        response_data = data.get("responseData", {})
+        response_data = data.get(
+            "responseData",
+            {}
+        )
+
         translated = response_data.get(
             "translatedText",
             ""
@@ -314,6 +436,8 @@ async def cevir(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🦇 Alfred çalışıyor."
     )
 
+    source_language = detect_language(text)
+
     translated = translate_to_turkish(text)
 
     if translated is None:
@@ -323,8 +447,24 @@ async def cevir(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    language_names = {
+        "en": "🇬🇧 İngilizce",
+        "de": "🇩🇪 Almanca",
+        "fr": "🇫🇷 Fransızca",
+        "es": "🇪🇸 İspanyolca",
+        "it": "🇮🇹 İtalyanca",
+        "ru": "🇷🇺 Rusça",
+        "tr": "🇹🇷 Türkçe"
+    }
+
+    detected_name = language_names.get(
+        source_language,
+        source_language.upper()
+    )
+
     await update.message.reply_text(
         "🌍 ALFRED — ÇEVİRİ\n\n"
+        f"🔎 Algılanan dil: {detected_name}\n\n"
         f"📝 Orijinal:\n{text}\n\n"
         "🇹🇷 Türkçe:\n"
         f"{translated}"
