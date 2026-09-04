@@ -1,5 +1,6 @@
 import os
 import requests
+import feedparser
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -8,7 +9,6 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
-GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 
 # =========================
@@ -41,57 +41,50 @@ def get_price(symbol):
 
 
 # =========================
-# HABER MOTORU
+# RSS HABER MOTORU
 # =========================
 
-def get_news(query, limit=5):
-    try:
-        params = {
-            "query": query,
-            "mode": "artlist",
-            "maxrecords": limit,
-            "format": "json",
-            "sort": "datedesc"
-        }
+def get_rss_news(feeds, limit=5):
+    results = []
+    seen = set()
 
-        r = requests.get(
-            GDELT_URL,
-            params=params,
-            timeout=20
-        )
+    for feed_url, source_name in feeds:
+        try:
+            feed = feedparser.parse(feed_url)
 
-        r.raise_for_status()
+            for entry in feed.entries:
+                title = entry.get("title", "").strip()
+                link = entry.get("link", "").strip()
 
-        data = r.json()
-        articles = data.get("articles", [])
+                if not title or not link:
+                    continue
 
-        results = []
+                if link in seen:
+                    continue
 
-        for article in articles:
-            title = article.get("title", "")
-            url = article.get("url", "")
-            domain = article.get("domain", "")
+                seen.add(link)
 
-            if title and url:
                 results.append({
                     "title": title,
-                    "url": url,
-                    "domain": domain
+                    "url": link,
+                    "domain": source_name
                 })
 
-        return results[:limit]
+        except Exception as e:
+            print(
+                f"RSS HATASI ({source_name}):",
+                repr(e)
+            )
 
-    except Exception as e:
-        print("HABER HATASI:", repr(e))
-        return []
+    return results[:limit]
 
 
 def news_text(header, news):
     if not news:
         return (
             f"{header}\n\n"
-            "⚠️ Şu anda haber bulunamadı.\n\n"
-            "🦇 Alfred haber servisine tekrar bağlanmayı deneyebilir."
+            "⚠️ Şu anda haber alınamadı.\n\n"
+            "🦇 Alfred haber servisi tekrar denenebilir."
         )
 
     text = f"{header}\n"
@@ -306,9 +299,22 @@ async def haber(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🌍 Dünya haberleri taranıyor..."
     )
 
-    query = "world OR global OR international"
+    feeds = [
+        (
+            "https://feeds.bbci.co.uk/news/world/rss.xml",
+            "BBC"
+        ),
+        (
+            "https://rss.dw.com/rdf/rss-en-world",
+            "DW"
+        ),
+        (
+            "https://apnews.com/hub/world-news?output=1",
+            "AP"
+        )
+    ]
 
-    news = get_news(query, 5)
+    news = get_rss_news(feeds, 5)
 
     await update.message.reply_text(
         news_text(
@@ -327,9 +333,22 @@ async def haberturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🇹🇷 Türkiye haberleri taranıyor..."
     )
 
-    query = "Turkey OR Türkiye"
+    feeds = [
+        (
+            "https://www.aa.com.tr/tr/rss/default?cat=guncel",
+            "Anadolu Ajansı"
+        ),
+        (
+            "https://feeds.bbci.co.uk/turkce/rss.xml",
+            "BBC Türkçe"
+        ),
+        (
+            "https://rss.dw.com/rdf/rss-tur",
+            "DW Türkçe"
+        )
+    ]
 
-    news = get_news(query, 5)
+    news = get_rss_news(feeds, 5)
 
     await update.message.reply_text(
         news_text(
@@ -348,12 +367,22 @@ async def haberkripto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "₿ Kripto haberleri taranıyor..."
     )
 
-    query = (
-        "Bitcoin OR Ethereum OR crypto OR "
-        "cryptocurrency OR blockchain"
-    )
+    feeds = [
+        (
+            "https://www.coindesk.com/arc/outboundfeeds/rss/",
+            "CoinDesk"
+        ),
+        (
+            "https://decrypt.co/feed",
+            "Decrypt"
+        ),
+        (
+            "https://www.theblock.co/rss.xml",
+            "The Block"
+        )
+    ]
 
-    news = get_news(query, 5)
+    news = get_rss_news(feeds, 5)
 
     await update.message.reply_text(
         news_text(
