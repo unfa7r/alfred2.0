@@ -34,6 +34,8 @@ WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 ISTANBUL_LAT = 41.0082
 ISTANBUL_LON = 28.9784
 
+GROQ_MODEL = "openai/gpt-oss-120b"
+
 
 # =========================================================
 # GROQ
@@ -69,7 +71,11 @@ CRYPTO_FEEDS = [
     ("https://www.theblock.co/rss.xml", "The Block"),
 ]
 
+
+# =========================================================
 # RADAR KAYNAKLARI
+# =========================================================
+
 RADAR_WORLD_FEEDS = [
     ("https://feeds.bbci.co.uk/news/world/rss.xml", "BBC Dünya"),
     ("https://rss.dw.com/rdf/rss-en-world", "DW Dünya"),
@@ -993,7 +999,7 @@ async def ozetcikar(
 
         try:
             response = groq_client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
                 messages=[
                     {
                         "role": "system",
@@ -1081,7 +1087,7 @@ async def sor(
     try:
 
         response = groq_client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model=GROQ_MODEL,
             messages=[
                 {
                     "role": "system",
@@ -1194,7 +1200,7 @@ async def sor(
 
 def get_radar_news(
     feeds,
-    limit=5,
+    limit=6,
 ):
     results = []
     seen = set()
@@ -1221,10 +1227,22 @@ def get_radar_news(
                 if not title or not link:
                     continue
 
-                if link in seen:
+                normalized = (
+                    title.lower()
+                    .replace(
+                        " ",
+                        ""
+                    )
+                )
+
+                if (
+                    link in seen
+                    or normalized in seen
+                ):
                     continue
 
                 seen.add(link)
+                seen.add(normalized)
 
                 translated_title = (
                     translate_news_title(
@@ -1250,6 +1268,10 @@ def get_radar_news(
 
     return results
 
+
+# =========================================================
+# RADAR ANAHTAR KELİMELERİ
+# =========================================================
 
 def radar_priority(title):
     text = title.lower()
@@ -1335,6 +1357,310 @@ def radar_label(priority):
 
 
 # =========================================================
+# RADAR RSS KANITI HAZIRLA
+# =========================================================
+
+def build_radar_evidence(
+    world_news,
+    turkey_news,
+    economy_news,
+):
+    evidence = []
+
+    for item in world_news:
+        evidence.append({
+            "category": "Dünya",
+            **item
+        })
+
+    for item in turkey_news:
+        evidence.append({
+            "category": "Türkiye",
+            **item
+        })
+
+    for item in economy_news:
+        evidence.append({
+            "category": "Ekonomi",
+            **item
+        })
+
+    return evidence
+
+
+# =========================================================
+# AI RADAR
+# =========================================================
+
+def ai_radar_analysis(evidence):
+
+    if not groq_client:
+        return None
+
+    evidence_text = ""
+
+    for index, item in enumerate(
+        evidence,
+        1
+    ):
+
+        evidence_text += (
+            f"\n[{index}] "
+            f"Kategori: {item['category']}\n"
+            f"Başlık: {item['title']}\n"
+            f"Kaynak: {item['domain']}\n"
+            f"URL: {item['url']}\n"
+        )
+
+    prompt = f"""
+Sen Alfred'sin ve gelişmiş bir haber/risk radarısın.
+
+Şu anda Dünya, Türkiye ve ekonomi alanındaki
+en önemli gelişmeleri analiz ediyorsun.
+
+KESİN KURALLAR:
+
+1. KRİPTO PARA HABERLERİNİ ANALİZ ETME.
+2. Bitcoin, Ethereum, altcoin, memecoin,
+   kripto borsa ve token haberlerini RADARA ALMA.
+3. Dünya, Türkiye ve EKONOMİ konularına odaklan.
+4. Güncel gelişmeleri gerektiğinde web araması
+   yaparak kontrol et.
+5. Aynı olayın farklı kaynaklardaki tekrarlarını
+   mümkün olduğunca tek olay altında birleştir.
+6. Eski veya düşük etkili haberleri ele.
+7. Gerçekten önemli olayları öne çıkar.
+8. Tahmin ile doğrulanmış bilgiyi birbirine
+   karıştırma.
+9. Bilgi kesin değilse bunu açıkça belirt.
+10. Yatırım tavsiyesi verme.
+
+ÖNEM DERECELERİ:
+
+🔴 KRİTİK:
+Savaş, büyük saldırı, doğal afet, ciddi ekonomik
+kriz, bankacılık krizi, devlet iflası, nükleer
+tehdit veya dünya/Türkiye açısından olağanüstü
+etkili gelişmeler.
+
+🟠 ÖNEMLİ:
+Merkez bankası kararları, faiz, enflasyon,
+resesyon, enerji, petrol, altın, ticaret
+politikaları, yaptırımlar, seçimler, hükümet
+kararları ve önemli ekonomik gelişmeler.
+
+🟢 GÜNDEM:
+Önemli fakat acil veya büyük sistemik etkisi
+olmayan gelişmeler.
+
+ÇIKTI FORMATI:
+
+📡 ALFRED AI RADAR
+
+🔴/🟠/🟢 [ÖNEM]
+🌍/🇹🇷/💰 [KATEGORİ]
+[Haber başlığı]
+
+🧠 Alfred:
+[1-2 cümlelik kısa ve mantıklı değerlendirme]
+
+⚠️ Etki:
+[Düşük / Orta / Yüksek / Çok yüksek]
+
+📡 Kaynak:
+[Kaynak adı]
+
+🔗 [URL]
+
+Her haber arasında:
+
+━━━━━━━━━━━━━━
+
+En fazla 8 olay göster.
+
+Sonuna:
+
+🦇 Genel tablo:
+[2-4 cümleyle günün genel görünümünü
+Dünya + Türkiye + ekonomi açısından değerlendir.]
+
+ekle.
+
+ASLA kripto haberi gösterme.
+
+RSS KAYNAKLARI:
+{evidence_text}
+"""
+
+    try:
+
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Sen Alfred AI Radar'sın. "
+                        "Türkçe konuş. "
+                        "Güncel gelişmeleri dikkatli "
+                        "ve tarafsız şekilde analiz et. "
+                        "Kriptoyu radar dışında tut."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            temperature=0.2,
+            max_tokens=1800,
+            tools=[
+                {
+                    "type": "browser_search"
+                }
+            ],
+        )
+
+        answer = (
+            response.choices[0]
+            .message.content
+            .strip()
+        )
+
+        if not answer:
+            return None
+
+        return answer
+
+    except Exception as e:
+
+        print(
+            "AI RADAR HATASI:",
+            repr(e)
+        )
+
+        return None
+
+
+# =========================================================
+# KLASİK RADAR
+# =========================================================
+
+def classic_radar(
+    all_news
+):
+
+    for item in all_news:
+        item["priority"] = radar_priority(
+            item["title"]
+        )
+
+    all_news.sort(
+        key=lambda x: x["priority"],
+        reverse=True,
+    )
+
+    final_news = []
+    seen_titles = set()
+
+    for item in all_news:
+
+        normalized = (
+            item["title"]
+            .lower()
+            .strip()
+        )
+
+        if normalized in seen_titles:
+            continue
+
+        seen_titles.add(
+            normalized
+        )
+
+        final_news.append(
+            item
+        )
+
+        if len(final_news) >= 10:
+            break
+
+    now = datetime.now(
+        ZoneInfo(
+            "Europe/Istanbul"
+        )
+    )
+
+    text = (
+        "📡 ALFRED RADAR\n\n"
+        f"🕒 {now.strftime('%d.%m.%Y %H:%M')}\n\n"
+        "Dünya, Türkiye ve ekonomi "
+        "gelişmeleri tarandı.\n\n"
+    )
+
+    for index, item in enumerate(
+        final_news,
+        1
+    ):
+
+        priority_text = radar_label(
+            item["priority"]
+        )
+
+        text += (
+            f"{priority_text}\n"
+            f"{item['category']}\n"
+            f"{index}. {item['title']}\n"
+            f"📡 {item['domain']}\n"
+            f"🔗 {item['url']}\n\n"
+        )
+
+    text += (
+        "━━━━━━━━━━━━━━\n"
+        "🦇 Alfred değerlendirmesi:\n"
+        "AI Radar şu anda devre dışı veya "
+        "erişilemez olduğu için klasik radar "
+        "sıralaması kullanıldı."
+    )
+
+    return text
+
+
+# =========================================================
+# TELEGRAM MESAJINI PARÇALA
+# =========================================================
+
+async def send_long_message(
+    update,
+    text,
+):
+    max_length = 4000
+
+    if len(text) <= max_length:
+
+        await update.message.reply_text(
+            text
+        )
+
+        return
+
+    parts = [
+        text[i:i + max_length]
+        for i in range(
+            0,
+            len(text),
+            max_length
+        )
+    ]
+
+    for part in parts:
+
+        await update.message.reply_text(
+            part
+        )
+
+
+# =========================================================
 # /RADAR
 # =========================================================
 
@@ -1342,29 +1668,36 @@ async def radar(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+
     await update.message.reply_text(
-        "📡 Alfred Radar çalışıyor...\n\n"
+        "📡 Alfred AI Radar çalışıyor...\n\n"
         "🌍 Dünya\n"
         "🇹🇷 Türkiye\n"
         "💰 Ekonomi\n"
-        "🚨 Önemli gelişmeler taranıyor..."
+        "🤖 AI analizi\n"
+        "🌐 Güncel gelişme kontrolü\n\n"
+        "Biraz bekleyin efendim..."
     )
 
     try:
 
+        # -------------------------------------------------
+        # RSS VERİLERİNİ TOPLA
+        # -------------------------------------------------
+
         world_news = get_radar_news(
             RADAR_WORLD_FEEDS,
-            limit=4,
+            limit=5,
         )
 
         turkey_news = get_radar_news(
             RADAR_TURKEY_FEEDS,
-            limit=4,
+            limit=5,
         )
 
         economy_news = get_radar_news(
             RADAR_ECONOMY_FEEDS,
-            limit=4,
+            limit=5,
         )
 
         all_news = []
@@ -1382,109 +1715,68 @@ async def radar(
             all_news.append(item)
 
         if not all_news:
+
             await update.message.reply_text(
                 "📡 Alfred Radar\n\n"
                 "Şu anda radar verisi alınamadı."
             )
+
             return
 
-        for item in all_news:
-            item["priority"] = radar_priority(
-                item["title"]
-            )
+        # -------------------------------------------------
+        # AI RADAR
+        # -------------------------------------------------
 
-        all_news.sort(
-            key=lambda x: x["priority"],
-            reverse=True,
+        evidence = build_radar_evidence(
+            world_news,
+            turkey_news,
+            economy_news,
         )
 
-        final_news = []
-        seen_titles = set()
-
-        for item in all_news:
-
-            normalized = (
-                item["title"]
-                .lower()
-                .strip()
-            )
-
-            if normalized in seen_titles:
-                continue
-
-            seen_titles.add(
-                normalized
-            )
-
-            final_news.append(
-                item
-            )
-
-            if len(final_news) >= 10:
-                break
-
-        now = datetime.now(
-            ZoneInfo(
-                "Europe/Istanbul"
-            )
+        ai_result = ai_radar_analysis(
+            evidence
         )
 
-        text = (
-            "📡 ALFRED RADAR\n\n"
-            f"🕒 {now.strftime('%d.%m.%Y %H:%M')}\n\n"
-            "Dünya, Türkiye ve ekonomi "
-            "gelişmeleri tarandı.\n\n"
-        )
+        # -------------------------------------------------
+        # AI BAŞARILIYSA
+        # -------------------------------------------------
 
-        for index, item in enumerate(
-            final_news,
-            1
-        ):
+        if ai_result:
 
-            priority_text = radar_label(
-                item["priority"]
-            )
-
-            text += (
-                f"{priority_text}\n"
-                f"{item['category']}\n"
-                f"{index}. {item['title']}\n"
-                f"📡 {item['domain']}\n"
-                f"🔗 {item['url']}\n\n"
-            )
-
-        text += (
-            "━━━━━━━━━━━━━━\n"
-            "🦇 Alfred değerlendirmesi:\n"
-            "Radar haberleri önem sırasına göre "
-            "düzenlenmiştir. Kritik etiketi, "
-            "haber başlığındaki yüksek etkili "
-            "anahtar kelimelere göre belirlenir."
-        )
-
-        max_length = 4000
-
-        if len(text) <= max_length:
-
-            await update.message.reply_text(
-                text
-            )
-
-        else:
-
-            parts = [
-                text[i:i + max_length]
-                for i in range(
-                    0,
-                    len(text),
-                    max_length
+            now = datetime.now(
+                ZoneInfo(
+                    "Europe/Istanbul"
                 )
-            ]
+            )
 
-            for part in parts:
-                await update.message.reply_text(
-                    part
-                )
+            final_text = (
+                f"{ai_result}\n\n"
+                "━━━━━━━━━━━━━━\n"
+                f"🕒 Radar zamanı: "
+                f"{now.strftime('%d.%m.%Y %H:%M')}\n"
+                "🦇 Alfred AI Radar aktif\n"
+                "🚫 Kripto radar dışında tutulmuştur."
+            )
+
+            await send_long_message(
+                update,
+                final_text
+            )
+
+            return
+
+        # -------------------------------------------------
+        # AI ÇALIŞMAZSA KLASİK RADAR
+        # -------------------------------------------------
+
+        classic_text = classic_radar(
+            all_news
+        )
+
+        await send_long_message(
+            update,
+            classic_text
+        )
 
     except Exception as e:
 
@@ -1618,7 +1910,7 @@ def main():
     if not GROQ_API_KEY:
         print(
             "⚠️ GROQ_API_KEY bulunamadı. "
-            "/sor AI olmadan çalışamaz."
+            "/sor ve AI Radar çalışamaz."
         )
 
     application = (
