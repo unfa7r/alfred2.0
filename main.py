@@ -7,7 +7,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-BINANCE_URL = "https://api.binance.com/api/v3/ticker/24hr"
+BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
 
 def get_binance_price(symbol):
