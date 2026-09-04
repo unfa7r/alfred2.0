@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 from langdetect import detect
 from langdetect.lang_detect_exception import LangDetectException
 
+from groq import Groq
+
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -21,6 +23,7 @@ from telegram.ext import (
 # =========================================================
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
@@ -30,6 +33,18 @@ WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
 ISTANBUL_LAT = 41.0082
 ISTANBUL_LON = 28.9784
+
+
+# =========================================================
+# GROQ
+# =========================================================
+
+groq_client = None
+
+if GROQ_API_KEY:
+    groq_client = Groq(
+        api_key=GROQ_API_KEY
+    )
 
 
 # =========================================================
@@ -92,6 +107,7 @@ LANGUAGE_NAMES = {
     "sk": "🇸🇰 Slovakça",
 }
 
+
 MYMEMORY_CODES = {
     "tr": "tr",
     "en": "en",
@@ -127,7 +143,7 @@ MYMEMORY_CODES = {
 
 
 # =========================================================
-# ÇEVİRİ ÖNBELLEĞİ
+# HABER ÇEVİRİ ÖNBELLEĞİ
 # =========================================================
 
 NEWS_TRANSLATION_CACHE = {}
@@ -135,8 +151,6 @@ NEWS_TRANSLATION_CACHE = {}
 
 # =========================================================
 # DİL ALGILAMA
-# /cevir İÇİN KULLANILIYOR
-# HABERLERDE KULLANILMIYOR
 # =========================================================
 
 def detect_language(text):
@@ -152,17 +166,22 @@ def detect_language(text):
         return None
 
     except LangDetectException as e:
-        print("DİL ALGILAMA HATASI:", repr(e))
+        print(
+            "DİL ALGILAMA HATASI:",
+            repr(e)
+        )
         return None
 
     except Exception as e:
-        print("DİL ALGILAMA HATASI:", repr(e))
+        print(
+            "DİL ALGILAMA HATASI:",
+            repr(e)
+        )
         return None
 
 
 # =========================================================
 # GENEL ÇEVİRİ
-# /cevir KOMUTU İÇİN
 # =========================================================
 
 def translate_to_turkish(text):
@@ -175,7 +194,9 @@ def translate_to_turkish(text):
         if source_language == "tr":
             return text, source_language
 
-        source_code = MYMEMORY_CODES.get(source_language)
+        source_code = MYMEMORY_CODES.get(
+            source_language
+        )
 
         if not source_code:
             return None, source_language
@@ -195,35 +216,51 @@ def translate_to_turkish(text):
 
         data = r.json()
 
-        response_data = data.get("responseData", {})
-        translated = response_data.get("translatedText", "").strip()
+        response_data = data.get(
+            "responseData",
+            {}
+        )
+
+        translated = response_data.get(
+            "translatedText",
+            ""
+        ).strip()
 
         if not translated:
-            print("ÇEVİRİ VERİ HATASI:", data)
+            print(
+                "ÇEVİRİ VERİ HATASI:",
+                data
+            )
             return None, source_language
 
         if (
-            "INVALID SOURCE LANGUAGE" in translated.upper()
+            "INVALID SOURCE LANGUAGE"
+            in translated.upper()
             or (
-                "MYMEMORY" in translated.upper()
-                and "ERROR" in translated.upper()
+                "MYMEMORY"
+                in translated.upper()
+                and "ERROR"
+                in translated.upper()
             )
         ):
-            print("ÇEVİRİ SERVİS HATASI:", translated)
+            print(
+                "ÇEVİRİ SERVİS HATASI:",
+                translated
+            )
             return None, source_language
 
         return translated, source_language
 
     except Exception as e:
-        print("ÇEVİRİ HATASI:", repr(e))
+        print(
+            "ÇEVİRİ HATASI:",
+            repr(e)
+        )
         return None, None
 
 
 # =========================================================
 # HABER BAŞLIĞI ÇEVİRİSİ
-#
-# BURADA DİL ALGILAMA YOK.
-# İNGİLİZCE KAYNAKLAR DOĞRUDAN EN -> TR
 # =========================================================
 
 def translate_news_title(title):
@@ -232,7 +269,6 @@ def translate_news_title(title):
     if not title:
         return title
 
-    # Daha önce çevrildiyse tekrar API'ye gitme
     if title in NEWS_TRANSLATION_CACHE:
         return NEWS_TRANSLATION_CACHE[title]
 
@@ -252,9 +288,14 @@ def translate_news_title(title):
 
         data = r.json()
 
-        response_status = data.get("responseStatus")
+        response_status = data.get(
+            "responseStatus"
+        )
 
-        if response_status not in (None, 200):
+        if response_status not in (
+            None,
+            200,
+        ):
             print(
                 "HABER ÇEVİRİ SERVİSİ HATASI:",
                 data.get("responseDetails")
@@ -263,36 +304,36 @@ def translate_news_title(title):
             NEWS_TRANSLATION_CACHE[title] = title
             return title
 
-        response_data = data.get("responseData", {})
+        response_data = data.get(
+            "responseData",
+            {}
+        )
 
         translated = response_data.get(
             "translatedText",
             ""
         ).strip()
 
-        # Boş cevap
         if not translated:
-            print("HABER ÇEVİRİSİ BOŞ DÖNDÜ")
             NEWS_TRANSLATION_CACHE[title] = title
             return title
 
-        # Servis hata mesajını çeviri olarak döndürürse
         error_text = translated.upper()
 
         if (
-            "INVALID SOURCE LANGUAGE" in error_text
-            or "MYMEMORY" in error_text and "ERROR" in error_text
+            "INVALID SOURCE LANGUAGE"
+            in error_text
+            or (
+                "MYMEMORY"
+                in error_text
+                and "ERROR"
+                in error_text
+            )
             or "QUOTA" in error_text
         ):
-            print(
-                "HABER ÇEVİRİ SERVİSİ HATASI:",
-                translated
-            )
-
             NEWS_TRANSLATION_CACHE[title] = title
             return title
 
-        # Başarılı çeviri
         NEWS_TRANSLATION_CACHE[title] = translated
 
         return translated
@@ -303,7 +344,6 @@ def translate_news_title(title):
             repr(e)
         )
 
-        # Çeviri çalışmazsa İngilizce başlık
         NEWS_TRANSLATION_CACHE[title] = title
 
         return title
@@ -324,7 +364,9 @@ def get_rss_news(
     for feed_url, source_name in feeds:
 
         try:
-            feed = feedparser.parse(feed_url)
+            feed = feedparser.parse(
+                feed_url
+            )
 
             for entry in feed.entries:
 
@@ -346,9 +388,12 @@ def get_rss_news(
 
                 seen.add(link)
 
-                # Türkçe kaynaklarda çeviri yapma
                 if translate_titles:
-                    translated_title = translate_news_title(title)
+                    translated_title = (
+                        translate_news_title(
+                            title
+                        )
+                    )
                 else:
                     translated_title = title
 
@@ -394,8 +439,10 @@ def news_text(
 
     text = f"📰 {title}\n\n"
 
-    for i, item in enumerate(news, 1):
-
+    for i, item in enumerate(
+        news,
+        1
+    ):
         text += (
             f"{i}. {item['title']}\n"
             f"📡 {item['domain']}\n"
@@ -413,7 +460,9 @@ def get_price(symbol):
     try:
         r = requests.get(
             BINANCE_URL,
-            params={"symbol": symbol},
+            params={
+                "symbol": symbol
+            },
             timeout=10,
         )
 
@@ -457,7 +506,9 @@ async def fiyatbtc(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
-    result = get_price("BTCUSDT")
+    result = get_price(
+        "BTCUSDT"
+    )
 
     if not result:
         await update.message.reply_text(
@@ -467,7 +518,11 @@ async def fiyatbtc(
 
     price, change = result
 
-    emoji = "🟢" if change >= 0 else "🔴"
+    emoji = (
+        "🟢"
+        if change >= 0
+        else "🔴"
+    )
 
     await update.message.reply_text(
         f"₿ Bitcoin\n\n"
@@ -484,7 +539,9 @@ async def fiyatsol(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
-    result = get_price("SOLUSDT")
+    result = get_price(
+        "SOLUSDT"
+    )
 
     if not result:
         await update.message.reply_text(
@@ -494,7 +551,11 @@ async def fiyatsol(
 
     price, change = result
 
-    emoji = "🟢" if change >= 0 else "🔴"
+    emoji = (
+        "🟢"
+        if change >= 0
+        else "🔴"
+    )
 
     await update.message.reply_text(
         f"◎ Solana\n\n"
@@ -534,10 +595,9 @@ async def tara(
                 ""
             )
 
-            if not symbol.endswith("USDT"):
-                continue
-
-            if not symbol.isascii():
+            if not symbol.endswith(
+                "USDT"
+            ):
                 continue
 
             try:
@@ -556,18 +616,19 @@ async def tara(
             except Exception:
                 continue
 
-            # Çok düşük hacimli saçma çiftleri ele
             if volume < 1_000_000:
                 continue
 
-            # Pozitif momentum
             if change <= 0:
                 continue
 
             score = (
                 change * 0.7
                 + (
-                    min(volume / 10_000_000, 10)
+                    min(
+                        volume / 10_000_000,
+                        10
+                    )
                     * 0.3
                 )
             )
@@ -589,7 +650,8 @@ async def tara(
 
         if not top:
             await update.message.reply_text(
-                "⚠️ Şu anda uygun momentum adayı bulunamadı."
+                "⚠️ Şu anda uygun momentum "
+                "adayı bulunamadı."
             )
             return
 
@@ -599,7 +661,10 @@ async def tara(
             "pozitif momentum taraması:\n\n"
         )
 
-        for i, coin in enumerate(top, 1):
+        for i, coin in enumerate(
+            top,
+            1
+        ):
 
             emoji = (
                 "🚀"
@@ -608,7 +673,8 @@ async def tara(
             )
 
             text += (
-                f"{i}. {emoji} {coin['symbol']}\n"
+                f"{i}. {emoji} "
+                f"{coin['symbol']}\n"
                 f"   💰 {coin['price']:.8f}\n"
                 f"   📈 %{coin['change']:.2f}\n"
                 f"   💧 Hacim: "
@@ -617,7 +683,8 @@ async def tara(
 
         text += (
             "⚠️ Bu liste kâr garantisi değildir. "
-            "Momentum yüksek olduğu kadar risk de yüksek olabilir."
+            "Momentum yüksek olduğu kadar "
+            "risk de yüksek olabilir."
         )
 
         await update.message.reply_text(
@@ -631,7 +698,8 @@ async def tara(
         )
 
         await update.message.reply_text(
-            "❌ Binance taraması sırasında hata oluştu."
+            "❌ Binance taraması sırasında "
+            "hata oluştu."
         )
 
 
@@ -707,14 +775,17 @@ async def cevir(
         context.args
     )
 
-    translated, source_language = translate_to_turkish(
-        text
+    translated, source_language = (
+        translate_to_turkish(
+            text
+        )
     )
 
     if not translated:
         await update.message.reply_text(
             "❌ Metin çevrilemedi.\n"
-            "Biraz daha kısa bir metin deneyebilirsin."
+            "Biraz daha kısa bir metin "
+            "deneyebilirsin."
         )
         return
 
@@ -819,7 +890,9 @@ async def havadurumu(
         )
 
         now = datetime.now(
-            ZoneInfo("Europe/Istanbul")
+            ZoneInfo(
+                "Europe/Istanbul"
+            )
         )
 
         days = [
@@ -888,7 +961,8 @@ async def ozetcikar(
     if not context.args:
         await update.message.reply_text(
             "📝 /ozetcikar\n\n"
-            "Özetlemek istediğin metni komuttan sonra yaz.\n\n"
+            "Özetlemek istediğin metni "
+            "komuttan sonra yaz.\n\n"
             "Örnek:\n"
             "/ozetcikar Bitcoin bugün yükseldi..."
         )
@@ -898,17 +972,61 @@ async def ozetcikar(
         context.args
     )
 
-    # Şimdilik basit özetleme
-    # AI sistemi daha sonra bağlanabilir.
+    # AI varsa gerçek özetleme
+    if groq_client:
 
+        try:
+            response = groq_client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Sen Alfred'sin. "
+                            "Türkçe konuş. "
+                            "Verilen metni kısa, "
+                            "net ve doğru şekilde özetle. "
+                            "Gereksiz ayrıntıları çıkar."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": text,
+                    },
+                ],
+                temperature=0.3,
+                max_tokens=500,
+            )
+
+            summary = (
+                response.choices[0]
+                .message.content
+                .strip()
+            )
+
+            await update.message.reply_text(
+                "📝 Alfred Özeti\n\n"
+                + summary
+            )
+
+            return
+
+        except Exception as e:
+            print(
+                "AI ÖZETLEME HATASI:",
+                repr(e)
+            )
+
+    # AI çalışmazsa basit fallback
     words = text.split()
 
     if len(words) <= 40:
         summary = text
     else:
-        summary = " ".join(
-            words[:40]
-        ) + "..."
+        summary = (
+            " ".join(words[:40])
+            + "..."
+        )
 
     await update.message.reply_text(
         "📝 Özet\n\n"
@@ -933,17 +1051,127 @@ async def sor(
         )
         return
 
+    if not groq_client:
+        await update.message.reply_text(
+            "❌ Alfred AI bağlantısı bulunamadı.\n\n"
+            "Railway'de GROQ_API_KEY "
+            "değişkenini kontrol et."
+        )
+        return
+
     question = " ".join(
         context.args
     )
 
-    await update.message.reply_text(
-        "🧠 Alfred:\n\n"
-        "Sorunu aldım.\n\n"
-        f"❓ {question}\n\n"
-        "AI bağlantısı bir sonraki aşamada "
-        "eklenecek."
-    )
+    try:
+
+        response = groq_client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Sen Alfred'sin. "
+                        "Kullanıcıyla Türkçe konuş. "
+                        "Sakin, zeki, mantıklı, "
+                        "dürüst ve doğrudan ol. "
+                        "Gerektiğinde kullanıcıya "
+                        "katılmadığını açıkça söyle. "
+                        "Bilmediğin şeyi biliyormuş "
+                        "gibi gösterme. "
+                        "Cevaplarını gereksiz yere "
+                        "uzatma ama soruyu yeterince "
+                        "açıkla. "
+                        "Finans ve kripto konularında "
+                        "kesin kazanç garantisi verme."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": question,
+                },
+            ],
+            temperature=0.5,
+            max_tokens=800,
+        )
+
+        answer = (
+            response.choices[0]
+            .message.content
+            .strip()
+        )
+
+        if not answer:
+            await update.message.reply_text(
+                "❌ Alfred şu anda cevap üretemedi."
+            )
+            return
+
+        # Telegram mesaj limiti için böl
+        max_length = 4000
+
+        if len(answer) <= max_length:
+
+            await update.message.reply_text(
+                "🦇 Alfred:\n\n"
+                + answer
+            )
+
+        else:
+
+            parts = [
+                answer[i:i + max_length]
+                for i in range(
+                    0,
+                    len(answer),
+                    max_length
+                )
+            ]
+
+            for index, part in enumerate(
+                parts
+            ):
+
+                if index == 0:
+                    await update.message.reply_text(
+                        "🦇 Alfred:\n\n"
+                        + part
+                    )
+                else:
+                    await update.message.reply_text(
+                        part
+                    )
+
+    except Exception as e:
+
+        print(
+            "GROQ HATASI:",
+            repr(e)
+        )
+
+        error_text = str(e).lower()
+
+        if (
+            "rate" in error_text
+            or "limit" in error_text
+            or "429" in error_text
+        ):
+            message = (
+                "⚠️ Alfred'in ücretsiz AI "
+                "kullanım limitine ulaşıldı.\n\n"
+                "Bir süre sonra tekrar deneyelim."
+            )
+
+        else:
+            message = (
+                "❌ Alfred AI şu anda "
+                "cevap veremiyor.\n\n"
+                "Railway Logs'u kontrol edelim."
+            )
+
+        await update.message.reply_text(
+            message
+        )
 
 
 # =========================================================
@@ -1029,6 +1257,12 @@ def main():
     if not TOKEN:
         raise RuntimeError(
             "TELEGRAM_BOT_TOKEN bulunamadı."
+        )
+
+    if not GROQ_API_KEY:
+        print(
+            "⚠️ GROQ_API_KEY bulunamadı. "
+            "/sor AI olmadan çalışamaz."
         )
 
     application = (
@@ -1133,7 +1367,9 @@ def main():
         )
     )
 
-    print("🦇 Alfred 2.0 başlatılıyor...")
+    print(
+        "🦇 Alfred 2.0 başlatılıyor..."
+    )
 
     application.run_polling()
 
