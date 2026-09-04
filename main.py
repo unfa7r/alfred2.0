@@ -9,6 +9,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
+WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
 
 # =========================
@@ -99,6 +100,119 @@ def news_text(header, news):
     text += "🦇 Alfred 2.0"
 
     return text
+
+
+# =========================
+# HAVA DURUMU
+# =========================
+
+def weather_description(code):
+    descriptions = {
+        0: "☀️ Açık",
+        1: "🌤️ Çoğunlukla açık",
+        2: "⛅ Parçalı bulutlu",
+        3: "☁️ Kapalı",
+        45: "🌫️ Sisli",
+        48: "🌫️ Kırağılı sis",
+        51: "🌦️ Hafif çisenti",
+        53: "🌦️ Çisenti",
+        55: "🌧️ Yoğun çisenti",
+        61: "🌧️ Hafif yağmur",
+        63: "🌧️ Yağmur",
+        65: "🌧️ Kuvvetli yağmur",
+        71: "🌨️ Hafif kar",
+        73: "🌨️ Kar",
+        75: "❄️ Yoğun kar",
+        80: "🌦️ Hafif sağanak",
+        81: "🌧️ Sağanak",
+        82: "⛈️ Kuvvetli sağanak",
+        95: "⛈️ Gök gürültülü fırtına",
+        96: "⛈️ Dolu ihtimali",
+        99: "⛈️ Kuvvetli dolu"
+    }
+
+    return descriptions.get(
+        code,
+        "🌤️ Bilinmeyen hava durumu"
+    )
+
+
+def get_istanbul_weather():
+    try:
+        params = {
+            "latitude": 41.0082,
+            "longitude": 28.9784,
+            "current": (
+                "temperature_2m,"
+                "relative_humidity_2m,"
+                "apparent_temperature,"
+                "precipitation,"
+                "weather_code,"
+                "wind_speed_10m"
+            ),
+            "temperature_unit": "celsius",
+            "wind_speed_unit": "kmh",
+            "timezone": "Europe/Istanbul"
+        }
+
+        r = requests.get(
+            WEATHER_URL,
+            params=params,
+            timeout=15
+        )
+
+        r.raise_for_status()
+
+        data = r.json()
+
+        if "current" not in data:
+            print("HAVA VERİ HATASI:", data)
+            return None
+
+        return data["current"]
+
+    except Exception as e:
+        print("HAVA DURUMU HATASI:", repr(e))
+        return None
+
+
+async def havadurumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🌤️ İstanbul hava durumu alınıyor...\n"
+        "🦇 Alfred kontrol ediyor."
+    )
+
+    weather = get_istanbul_weather()
+
+    if weather is None:
+        await update.message.reply_text(
+            "⚠️ İstanbul hava durumu alınamadı."
+        )
+        return
+
+    temperature = weather.get("temperature_2m")
+    humidity = weather.get("relative_humidity_2m")
+    apparent = weather.get("apparent_temperature")
+    precipitation = weather.get("precipitation")
+    wind = weather.get("wind_speed_10m")
+    code = weather.get("weather_code")
+
+    description = weather_description(code)
+
+    text = (
+        "🌤️ ALFRED — İSTANBUL HAVA DURUMU\n\n"
+        f"📍 İstanbul\n"
+        f"{description}\n\n"
+        f"🌡️ Sıcaklık: {temperature:.1f}°C\n"
+        f"🌡️ Hissedilen: {apparent:.1f}°C\n"
+        f"💧 Nem: %{humidity}\n"
+        f"💨 Rüzgâr: {wind:.1f} km/sa\n"
+        f"🌧️ Yağış: {precipitation:.1f} mm\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "🦇 Alfred 2.0"
+    )
+
+    await update.message.reply_text(text)
 
 
 # =========================
@@ -395,12 +509,6 @@ async def haberkripto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 # ARAÇLAR
 # =========================
-
-async def havadurumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🌤️ Hava durumu modülü hazırlanıyor."
-    )
-
 
 async def cevir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
