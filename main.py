@@ -10,6 +10,10 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
 
+# =========================
+# BINANCE
+# =========================
+
 def get_binance_price(symbol):
     try:
         response = requests.get(
@@ -26,12 +30,10 @@ def get_binance_price(symbol):
 
         data = response.json()
 
-        # Binance hata döndürürse
         if isinstance(data, dict) and "code" in data:
             print("Binance API hatası:", data)
             return None
 
-        # Beklenen veri yoksa
         if not isinstance(data, dict) or "lastPrice" not in data:
             print("Beklenmeyen Binance cevabı:", data)
             return None
@@ -87,7 +89,7 @@ async def yardim(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# PİYASA
+# BTC
 # =========================
 
 async def fiyatbtc(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -110,6 +112,10 @@ async def fiyatbtc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# =========================
+# SOL
+# =========================
+
 async def fiyatsol(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = get_binance_price("SOLUSDT")
 
@@ -130,111 +136,132 @@ async def fiyatsol(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# =========================
+# TARA
+# =========================
+
 async def tara(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
-        "🔎 Piyasa taraması başlatılıyor...\n\n"
-        "🦇 Alfred 2.0 tarama sistemi hazırlanıyor."
+        "🔎 Binance piyasası taranıyor...\n"
+        "🦇 Alfred analiz yapıyor..."
     )
 
+    try:
+        response = requests.get(
+            BINANCE_URL,
+            timeout=20,
+            headers={"User-Agent": "Alfred2.0"}
+        )
 
-# =========================
-# HABERLER
-# =========================
+        print("TARA HTTP:", response.status_code)
+        print("TARA cevabı alındı.")
 
-async def haber(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📰 Dünya haberleri modülü hazırlanıyor."
-    )
+        response.raise_for_status()
 
+        data = response.json()
 
-async def haberturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🇹🇷 Türkiye haberleri modülü hazırlanıyor."
-    )
+        if not isinstance(data, list):
+            print("Beklenmeyen tara cevabı:", data)
 
+            await update.message.reply_text(
+                "⚠️ Binance tarama verisi alınamadı."
+            )
+            return
 
-async def haberkripto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "₿ Kripto haberleri modülü hazırlanıyor."
-    )
+        candidates = []
 
+        for coin in data:
 
-# =========================
-# ARAÇLAR
-# =========================
+            symbol = coin.get("symbol", "")
 
-async def havadurumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🌤️ Hava durumu modülü hazırlanıyor."
-    )
+            # Sadece USDT pariteleri
+            if not symbol.endswith("USDT"):
+                continue
 
+            # Stablecoinleri çıkar
+            excluded = [
+                "USDCUSDT",
+                "FDUSDUSDT",
+                "TUSDUSDT",
+                "USDTUSDT",
+                "DAIUSDT",
+            ]
 
-async def cevir(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🌍 Çeviri modülü hazırlanıyor."
-    )
+            if symbol in excluded:
+                continue
 
+            try:
+                change = float(
+                    coin.get("priceChangePercent", 0)
+                )
 
-async def ozetcikar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📝 Özet çıkarma modülü hazırlanıyor."
-    )
+                volume = float(
+                    coin.get("quoteVolume", 0)
+                )
 
+                price = float(
+                    coin.get("lastPrice", 0)
+                )
 
-# =========================
-# ALFRED
-# =========================
+            except (TypeError, ValueError):
+                continue
 
-async def sor(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🧠 Alfred AI soru-cevap modülü hazırlanıyor."
-    )
+            # Yeterli hacim
+            if volume < 1_000_000:
+                continue
 
+            # Pozitif hareket
+            if change <= 0:
+                continue
 
-async def radar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📡 Radar aktif.\n\n"
-        "🌍 Olağandışı gelişmeler ve piyasa anomalileri "
-        "modülü hazırlanıyor."
-    )
+            candidates.append({
+                "symbol": symbol.replace("USDT", ""),
+                "change": change,
+                "volume": volume,
+                "price": price
+            })
 
+        # En çok yükselenleri sırala
+        candidates.sort(
+            key=lambda x: x["change"],
+            reverse=True
+        )
 
-# =========================
-# BOT
-# =========================
+        top = candidates[:5]
 
-def main():
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN bulunamadı.")
+        if not top:
+            await update.message.reply_text(
+                "⚠️ Şu anda uygun pozitif sinyal bulunamadı."
+            )
+            return
 
-    app = Application.builder().token(TOKEN).build()
+        message = (
+            "🦇 ALFRED 2.0 RADAR\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "📈 En güçlü hareketler:\n\n"
+        )
 
-    # Sistem
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("yardim", yardim))
+        for i, coin in enumerate(top, 1):
 
-    # Piyasa
-    app.add_handler(CommandHandler("fiyatbtc", fiyatbtc))
-    app.add_handler(CommandHandler("fiyatsol", fiyatsol))
-    app.add_handler(CommandHandler("tara", tara))
+            message += (
+                f"{i}. 🔥 {coin['symbol']}\n"
+                f"   📈 24s: +{coin['change']:.2f}%\n"
+                f"   💰 Hacim: ${coin['volume']:,.0f}\n"
+                f"   💵 Fiyat: ${coin['price']:.8f}\n\n"
+            )
 
-    # Haberler
-    app.add_handler(CommandHandler("haber", haber))
-    app.add_handler(CommandHandler("haberturk", haberturk))
-    app.add_handler(CommandHandler("haberkripto", haberkripto))
+        message += (
+            "━━━━━━━━━━━━━━\n"
+            "⚠️ Bu liste AL/SAT garantisi değildir.\n"
+            "📡 Alfred piyasa momentumunu tarıyor."
+        )
 
-    # Araçlar
-    app.add_handler(CommandHandler("havadurumu", havadurumu))
-    app.add_handler(CommandHandler("cevir", cevir))
-    app.add_handler(CommandHandler("ozetcikar", ozetcikar))
+        await update.message.reply_text(message)
 
-    # Alfred
-    app.add_handler(CommandHandler("sor", sor))
-    app.add_handler(CommandHandler("radar", radar))
+    except Exception as e:
 
-    print("🦇 Alfred 2.0 aktif.")
-    app.run_polling()
+        print("TARA HATASI:", repr(e))
 
-
-if __name__ == "__main__":
-    main()
+        await update.message.reply_text(
+            "⚠️ P
