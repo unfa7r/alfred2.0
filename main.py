@@ -79,34 +79,19 @@ def get_news(query, limit=5):
                     "domain": domain
                 })
 
-        return results
+        return results[:limit]
 
     except Exception as e:
         print("HABER HATASI:", repr(e))
         return []
 
 
-def get_multiple_news(queries, limit=5):
-    all_news = []
-
-    for query in queries:
-        news = get_news(query, limit)
-
-        for article in news:
-            url = article.get("url")
-
-            if not any(x.get("url") == url for x in all_news):
-                all_news.append(article)
-
-    return all_news[:limit]
-
-
 def news_text(header, news):
     if not news:
         return (
             f"{header}\n\n"
-            "⚠️ Şu anda haber alınamadı.\n\n"
-            "🦇 Haber servisi daha sonra tekrar denenebilir."
+            "⚠️ Şu anda haber bulunamadı.\n\n"
+            "🦇 Alfred haber servisine tekrar bağlanmayı deneyebilir."
         )
 
     text = f"{header}\n"
@@ -318,17 +303,12 @@ async def tara(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def haber(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🌍 Güvenilir dünya haberleri taranıyor..."
+        "🌍 Dünya haberleri taranıyor..."
     )
 
-    queries = [
-        "world domainis:reuters.com",
-        "world domainis:apnews.com",
-        "world domainis:bbc.com",
-        "world domainis:dw.com"
-    ]
+    query = "world OR global OR international"
 
-    news = get_multiple_news(queries, 5)
+    news = get_news(query, 5)
 
     await update.message.reply_text(
         news_text(
@@ -344,17 +324,12 @@ async def haber(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def haberturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🇹🇷 Güvenilir Türkiye haberleri taranıyor..."
+        "🇹🇷 Türkiye haberleri taranıyor..."
     )
 
-    queries = [
-        "(Turkey OR Türkiye) domainis:aa.com.tr",
-        "(Turkey OR Türkiye) domainis:reuters.com",
-        "(Turkey OR Türkiye) domainis:bbc.com",
-        "(Turkey OR Türkiye) domainis:dw.com"
-    ]
+    query = "Turkey OR Türkiye"
 
-    news = get_multiple_news(queries, 5)
+    news = get_news(query, 5)
 
     await update.message.reply_text(
         news_text(
@@ -370,17 +345,15 @@ async def haberturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def haberkripto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "₿ Güvenilir kripto haberleri taranıyor..."
+        "₿ Kripto haberleri taranıyor..."
     )
 
-    queries = [
-        "(Bitcoin OR Ethereum OR crypto) domainis:reuters.com",
-        "(Bitcoin OR Ethereum OR crypto) domainis:coindesk.com",
-        "(Bitcoin OR Ethereum OR crypto) domainis:theblock.co",
-        "(Bitcoin OR Ethereum OR crypto) domainis:decrypt.co"
-    ]
+    query = (
+        "Bitcoin OR Ethereum OR crypto OR "
+        "cryptocurrency OR blockchain"
+    )
 
-    news = get_multiple_news(queries, 5)
+    news = get_news(query, 5)
 
     await update.message.reply_text(
         news_text(
