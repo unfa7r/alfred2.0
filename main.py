@@ -1,16 +1,18 @@
 import os
+import requests
+import feedparser
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import requests
-import feedparser
-from langdetect import detect, LangDetectException
+from langdetect import detect
+from langdetect.lang_detect_exception import LangDetectException
 
 from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
-    ContextTypes
+    ContextTypes,
 )
 
 
@@ -22,101 +24,42 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
-WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
-
 TRANSLATE_URL = "https://api.mymemory.translated.net/get"
 
+WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
-# =========================================================
-# BINANCE
-# =========================================================
-
-def get_price(symbol):
-    try:
-        r = requests.get(
-            BINANCE_URL,
-            params={"symbol": symbol},
-            timeout=10
-        )
-
-        r.raise_for_status()
-
-        data = r.json()
-
-        if "lastPrice" not in data:
-            print("BINANCE HATASI:", data)
-            return None
-
-        price = float(data["lastPrice"])
-        change = float(
-            data.get("priceChangePercent", 0)
-        )
-
-        return price, change
-
-    except Exception as e:
-        print("FIYAT HATASI:", repr(e))
-        return None
+ISTANBUL_LAT = 41.0082
+ISTANBUL_LON = 28.9784
 
 
 # =========================================================
-# RSS HABERLER
+# HABER KAYNAKLARI
 # =========================================================
 
 WORLD_FEEDS = [
-    (
-        "https://feeds.bbci.co.uk/news/world/rss.xml",
-        "BBC"
-    ),
-    (
-        "https://rss.dw.com/rdf/rss-en-world",
-        "DW"
-    ),
-    (
-        "https://apnews.com/hub/world-news?output=1",
-        "AP"
-    )
+    ("https://feeds.bbci.co.uk/news/world/rss.xml", "BBC"),
+    ("https://rss.dw.com/rdf/rss-en-world", "DW"),
+    ("https://apnews.com/hub/world-news?output=1", "AP"),
 ]
-
 
 TURKEY_FEEDS = [
-    (
-        "https://www.aa.com.tr/tr/rss/default?cat=guncel",
-        "Anadolu Ajansı"
-    ),
-    (
-        "https://feeds.bbci.co.uk/turkce/rss.xml",
-        "BBC Türkçe"
-    ),
-    (
-        "https://rss.dw.com/rdf/rss-tur",
-        "DW Türkçe"
-    )
+    ("https://www.aa.com.tr/tr/rss/default?cat=guncel", "Anadolu Ajansı"),
+    ("https://feeds.bbci.co.uk/turkce/rss.xml", "BBC Türkçe"),
+    ("https://rss.dw.com/rdf/rss-tur", "DW Türkçe"),
 ]
 
-
 CRYPTO_FEEDS = [
-    (
-        "https://www.coindesk.com/arc/outboundfeeds/rss/",
-        "CoinDesk"
-    ),
-    (
-        "https://decrypt.co/feed",
-        "Decrypt"
-    ),
-    (
-        "https://www.theblock.co/rss.xml",
-        "The Block"
-    )
+    ("https://www.coindesk.com/arc/outboundfeeds/rss/", "CoinDesk"),
+    ("https://decrypt.co/feed", "Decrypt"),
+    ("https://www.theblock.co/rss.xml", "The Block"),
 ]
 
 
 # =========================================================
-# 30 DİLLİ ÇEVİRİ SİSTEMİ
+# DİL
 # =========================================================
 
 LANGUAGE_NAMES = {
-
     "tr": "🇹🇷 Türkçe",
     "en": "🇬🇧 İngilizce",
     "de": "🇩🇪 Almanca",
@@ -146,12 +89,10 @@ LANGUAGE_NAMES = {
     "hu": "🇭🇺 Macarca",
     "ro": "🇷🇴 Romence",
     "he": "🇮🇱 İbranice",
-    "sk": "🇸🇰 Slovakça"
+    "sk": "🇸🇰 Slovakça",
 }
 
-
 MYMEMORY_CODES = {
-
     "tr": "tr",
     "en": "en",
     "de": "de",
@@ -181,14 +122,25 @@ MYMEMORY_CODES = {
     "hu": "hu",
     "ro": "ro",
     "he": "he",
-    "sk": "sk"
+    "sk": "sk",
 }
 
 
+# =========================================================
+# ÇEVİRİ ÖNBELLEĞİ
+# =========================================================
+
+NEWS_TRANSLATION_CACHE = {}
+
+
+# =========================================================
+# DİL ALGILAMA
+# /cevir İÇİN KULLANILIYOR
+# HABERLERDE KULLANILMIYOR
+# =========================================================
+
 def detect_language(text):
-
     try:
-
         detected = detect(text)
 
         if detected == "zh":
@@ -200,28 +152,21 @@ def detect_language(text):
         return None
 
     except LangDetectException as e:
-
-        print(
-            "DİL ALGILAMA HATASI:",
-            repr(e)
-        )
-
+        print("DİL ALGILAMA HATASI:", repr(e))
         return None
 
     except Exception as e:
-
-        print(
-            "DİL ALGILAMA HATASI:",
-            repr(e)
-        )
-
+        print("DİL ALGILAMA HATASI:", repr(e))
         return None
 
 
+# =========================================================
+# GENEL ÇEVİRİ
+# /cevir KOMUTU İÇİN
+# =========================================================
+
 def translate_to_turkish(text):
-
     try:
-
         source_language = detect_language(text)
 
         if source_language is None:
@@ -230,124 +175,156 @@ def translate_to_turkish(text):
         if source_language == "tr":
             return text, source_language
 
-        source_code = MYMEMORY_CODES.get(
-            source_language
-        )
+        source_code = MYMEMORY_CODES.get(source_language)
 
         if not source_code:
             return None, source_language
 
         params = {
             "q": text,
-            "langpair": f"{source_code}|tr"
+            "langpair": f"{source_code}|tr",
         }
 
         r = requests.get(
             TRANSLATE_URL,
             params=params,
-            timeout=20
+            timeout=20,
         )
 
         r.raise_for_status()
 
         data = r.json()
 
-        response_data = data.get(
-            "responseData",
-            {}
+        response_data = data.get("responseData", {})
+        translated = response_data.get("translatedText", "").strip()
+
+        if not translated:
+            print("ÇEVİRİ VERİ HATASI:", data)
+            return None, source_language
+
+        if (
+            "INVALID SOURCE LANGUAGE" in translated.upper()
+            or (
+                "MYMEMORY" in translated.upper()
+                and "ERROR" in translated.upper()
+            )
+        ):
+            print("ÇEVİRİ SERVİS HATASI:", translated)
+            return None, source_language
+
+        return translated, source_language
+
+    except Exception as e:
+        print("ÇEVİRİ HATASI:", repr(e))
+        return None, None
+
+
+# =========================================================
+# HABER BAŞLIĞI ÇEVİRİSİ
+#
+# BURADA DİL ALGILAMA YOK.
+# İNGİLİZCE KAYNAKLAR DOĞRUDAN EN -> TR
+# =========================================================
+
+def translate_news_title(title):
+    title = title.strip()
+
+    if not title:
+        return title
+
+    # Daha önce çevrildiyse tekrar API'ye gitme
+    if title in NEWS_TRANSLATION_CACHE:
+        return NEWS_TRANSLATION_CACHE[title]
+
+    try:
+        params = {
+            "q": title,
+            "langpair": "en|tr",
+        }
+
+        r = requests.get(
+            TRANSLATE_URL,
+            params=params,
+            timeout=20,
         )
+
+        r.raise_for_status()
+
+        data = r.json()
+
+        response_status = data.get("responseStatus")
+
+        if response_status not in (None, 200):
+            print(
+                "HABER ÇEVİRİ SERVİSİ HATASI:",
+                data.get("responseDetails")
+            )
+
+            NEWS_TRANSLATION_CACHE[title] = title
+            return title
+
+        response_data = data.get("responseData", {})
 
         translated = response_data.get(
             "translatedText",
             ""
         ).strip()
 
+        # Boş cevap
         if not translated:
-            print(
-                "ÇEVİRİ VERİ HATASI:",
-                data
-            )
-            return None, source_language
+            print("HABER ÇEVİRİSİ BOŞ DÖNDÜ")
+            NEWS_TRANSLATION_CACHE[title] = title
+            return title
 
-        # Bazı durumlarda servis hata mesajını
-        # translatedText alanında döndürebilir.
+        # Servis hata mesajını çeviri olarak döndürürse
+        error_text = translated.upper()
+
         if (
-            "INVALID SOURCE LANGUAGE"
-            in translated.upper()
-            or "MYMEMORY" in translated.upper()
-            and "ERROR" in translated.upper()
+            "INVALID SOURCE LANGUAGE" in error_text
+            or "MYMEMORY" in error_text and "ERROR" in error_text
+            or "QUOTA" in error_text
         ):
             print(
-                "ÇEVİRİ SERVİS HATASI:",
+                "HABER ÇEVİRİ SERVİSİ HATASI:",
                 translated
             )
 
-            return None, source_language
+            NEWS_TRANSLATION_CACHE[title] = title
+            return title
 
-        return translated, source_language
+        # Başarılı çeviri
+        NEWS_TRANSLATION_CACHE[title] = translated
 
-    except Exception as e:
-
-        print(
-            "ÇEVİRİ HATASI:",
-            repr(e)
-        )
-
-        return None, None
-
-
-# =========================================================
-# HABER BAŞLIĞI ÇEVİRİSİ
-# =========================================================
-
-def translate_news_title(title):
-
-    """
-    Haber başlığını Türkçeye çevirmeyi dener.
-
-    Çeviri başarısız olursa orijinal başlığı döndürür.
-    Böylece haber sistemi hiçbir zaman sadece çeviri
-    servisi yüzünden bozulmaz.
-    """
-
-    try:
-
-        translated, source_language = (
-            translate_to_turkish(title)
-        )
-
-        if translated:
-            return translated
-
-        return title
+        return translated
 
     except Exception as e:
-
         print(
             "HABER BAŞLIK ÇEVİRİ HATASI:",
             repr(e)
         )
 
+        # Çeviri çalışmazsa İngilizce başlık
+        NEWS_TRANSLATION_CACHE[title] = title
+
         return title
 
 
 # =========================================================
-# RSS HABER ÇEKME
+# RSS HABERLER
 # =========================================================
 
-def get_rss_news(feeds, limit=5):
-
+def get_rss_news(
+    feeds,
+    limit=5,
+    translate_titles=True,
+):
     results = []
-
     seen = set()
 
     for feed_url, source_name in feeds:
 
         try:
-
-            feed = feedparser.parse(
-                feed_url
-            )
+            feed = feedparser.parse(feed_url)
 
             for entry in feed.entries:
 
@@ -369,28 +346,23 @@ def get_rss_news(feeds, limit=5):
 
                 seen.add(link)
 
-                # Haber başlığını Türkçeleştir.
-                # Başarısız olursa orijinali kullan.
-                translated_title = (
-                    translate_news_title(title)
-                )
+                # Türkçe kaynaklarda çeviri yapma
+                if translate_titles:
+                    translated_title = translate_news_title(title)
+                else:
+                    translated_title = title
 
                 results.append({
-
                     "title": translated_title,
-
                     "original_title": title,
-
                     "url": link,
-
-                    "domain": source_name
+                    "domain": source_name,
                 })
 
                 if len(results) >= limit:
                     return results
 
         except Exception as e:
-
             print(
                 f"RSS HATASI ({source_name}):",
                 repr(e)
@@ -399,15 +371,22 @@ def get_rss_news(feeds, limit=5):
     return results
 
 
-def news_text(title, feeds):
+# =========================================================
+# HABER METNİ
+# =========================================================
 
+def news_text(
+    title,
+    feeds,
+    translate_titles=True,
+):
     news = get_rss_news(
         feeds,
-        limit=5
+        limit=5,
+        translate_titles=translate_titles,
     )
 
     if not news:
-
         return (
             f"📰 {title}\n\n"
             "Şu anda haber alınamadı."
@@ -418,11 +397,8 @@ def news_text(title, feeds):
     for i, item in enumerate(news, 1):
 
         text += (
-
             f"{i}. {item['title']}\n"
-
             f"📡 {item['domain']}\n"
-
             f"🔗 {item['url']}\n\n"
         )
 
@@ -430,52 +406,341 @@ def news_text(title, feeds):
 
 
 # =========================================================
-# HAVA DURUMU
+# BINANCE
 # =========================================================
 
-def weather_description(code):
+def get_price(symbol):
+    try:
+        r = requests.get(
+            BINANCE_URL,
+            params={"symbol": symbol},
+            timeout=10,
+        )
 
-    descriptions = {
+        r.raise_for_status()
 
-        0: "☀️ Açık",
-        1: "🌤️ Çoğunlukla açık",
-        2: "⛅ Parçalı bulutlu",
-        3: "☁️ Kapalı",
-        45: "🌫️ Sisli",
-        48: "🌫️ Kırağılı sis",
-        51: "🌦️ Hafif çisenti",
-        53: "🌦️ Çisenti",
-        55: "🌧️ Yoğun çisenti",
-        61: "🌧️ Hafif yağmur",
-        63: "🌧️ Yağmur",
-        65: "🌧️ Kuvvetli yağmur",
-        71: "🌨️ Hafif kar",
-        73: "🌨️ Kar",
-        75: "❄️ Yoğun kar",
-        80: "🌦️ Hafif sağanak",
-        81: "🌧️ Sağanak",
-        82: "⛈️ Kuvvetli sağanak",
-        95: "⛈️ Gök gürültülü fırtına",
-        96: "⛈️ Dolu ihtimali",
-        99: "⛈️ Kuvvetli dolu"
-    }
+        data = r.json()
 
-    return descriptions.get(
-        code,
-        "🌤️ Bilinmeyen hava durumu"
+        if "lastPrice" not in data:
+            print(
+                "BINANCE HATASI:",
+                data
+            )
+            return None
+
+        price = float(
+            data["lastPrice"]
+        )
+
+        change = float(
+            data.get(
+                "priceChangePercent",
+                0
+            )
+        )
+
+        return price, change
+
+    except Exception as e:
+        print(
+            "FIYAT HATASI:",
+            repr(e)
+        )
+        return None
+
+
+# =========================================================
+# /FIYATBTC
+# =========================================================
+
+async def fiyatbtc(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    result = get_price("BTCUSDT")
+
+    if not result:
+        await update.message.reply_text(
+            "❌ BTC fiyatı alınamadı."
+        )
+        return
+
+    price, change = result
+
+    emoji = "🟢" if change >= 0 else "🔴"
+
+    await update.message.reply_text(
+        f"₿ Bitcoin\n\n"
+        f"💰 {price:,.2f} USDT\n"
+        f"{emoji} 24s: %{change:.2f}"
     )
 
 
-def get_istanbul_weather():
+# =========================================================
+# /FIYATSOL
+# =========================================================
+
+async def fiyatsol(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    result = get_price("SOLUSDT")
+
+    if not result:
+        await update.message.reply_text(
+            "❌ SOL fiyatı alınamadı."
+        )
+        return
+
+    price, change = result
+
+    emoji = "🟢" if change >= 0 else "🔴"
+
+    await update.message.reply_text(
+        f"◎ Solana\n\n"
+        f"💰 {price:,.2f} USDT\n"
+        f"{emoji} 24s: %{change:.2f}"
+    )
+
+
+# =========================================================
+# /TARA
+# =========================================================
+
+async def tara(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    await update.message.reply_text(
+        "🔎 Binance taraması yapıyorum..."
+    )
 
     try:
+        r = requests.get(
+            BINANCE_URL,
+            timeout=15,
+        )
 
+        r.raise_for_status()
+
+        data = r.json()
+
+        candidates = []
+
+        for item in data:
+
+            symbol = item.get(
+                "symbol",
+                ""
+            )
+
+            if not symbol.endswith("USDT"):
+                continue
+
+            if not symbol.isascii():
+                continue
+
+            try:
+                price = float(
+                    item["lastPrice"]
+                )
+
+                change = float(
+                    item["priceChangePercent"]
+                )
+
+                volume = float(
+                    item["quoteVolume"]
+                )
+
+            except Exception:
+                continue
+
+            # Çok düşük hacimli saçma çiftleri ele
+            if volume < 1_000_000:
+                continue
+
+            # Pozitif momentum
+            if change <= 0:
+                continue
+
+            score = (
+                change * 0.7
+                + (
+                    min(volume / 10_000_000, 10)
+                    * 0.3
+                )
+            )
+
+            candidates.append({
+                "symbol": symbol,
+                "price": price,
+                "change": change,
+                "volume": volume,
+                "score": score,
+            })
+
+        candidates.sort(
+            key=lambda x: x["score"],
+            reverse=True,
+        )
+
+        top = candidates[:10]
+
+        if not top:
+            await update.message.reply_text(
+                "⚠️ Şu anda uygun momentum adayı bulunamadı."
+            )
+            return
+
+        text = (
+            "🦇 ALFRED RADAR\n\n"
+            "Binance USDT paritelerinde "
+            "pozitif momentum taraması:\n\n"
+        )
+
+        for i, coin in enumerate(top, 1):
+
+            emoji = (
+                "🚀"
+                if coin["change"] >= 5
+                else "🟢"
+            )
+
+            text += (
+                f"{i}. {emoji} {coin['symbol']}\n"
+                f"   💰 {coin['price']:.8f}\n"
+                f"   📈 %{coin['change']:.2f}\n"
+                f"   💧 Hacim: "
+                f"{coin['volume']:,.0f} USDT\n\n"
+            )
+
+        text += (
+            "⚠️ Bu liste kâr garantisi değildir. "
+            "Momentum yüksek olduğu kadar risk de yüksek olabilir."
+        )
+
+        await update.message.reply_text(
+            text
+        )
+
+    except Exception as e:
+        print(
+            "TARAMA HATASI:",
+            repr(e)
+        )
+
+        await update.message.reply_text(
+            "❌ Binance taraması sırasında hata oluştu."
+        )
+
+
+# =========================================================
+# /HABER
+# =========================================================
+
+async def haber(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    await update.message.reply_text(
+        news_text(
+            "Dünya Haberleri",
+            WORLD_FEEDS,
+            translate_titles=True,
+        )
+    )
+
+
+# =========================================================
+# /HABERTURK
+# =========================================================
+
+async def haberturk(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    await update.message.reply_text(
+        news_text(
+            "Türkiye Haberleri",
+            TURKEY_FEEDS,
+            translate_titles=False,
+        )
+    )
+
+
+# =========================================================
+# /HABERKRIPTO
+# =========================================================
+
+async def haberkripto(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    await update.message.reply_text(
+        news_text(
+            "Kripto Haberleri",
+            CRYPTO_FEEDS,
+            translate_titles=True,
+        )
+    )
+
+
+# =========================================================
+# /CEVIR
+# =========================================================
+
+async def cevir(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    if not context.args:
+        await update.message.reply_text(
+            "🌍 /cevir\n\n"
+            "Çevirmek istediğin metni yaz.\n\n"
+            "Örnek:\n"
+            "/cevir Hello, how are you?"
+        )
+        return
+
+    text = " ".join(
+        context.args
+    )
+
+    translated, source_language = translate_to_turkish(
+        text
+    )
+
+    if not translated:
+        await update.message.reply_text(
+            "❌ Metin çevrilemedi.\n"
+            "Biraz daha kısa bir metin deneyebilirsin."
+        )
+        return
+
+    language_name = LANGUAGE_NAMES.get(
+        source_language,
+        source_language or "Bilinmiyor"
+    )
+
+    await update.message.reply_text(
+        f"🌍 Kaynak dil: {language_name}\n\n"
+        f"🇹🇷 {translated}"
+    )
+
+
+# =========================================================
+# /HAVADURUMU
+# =========================================================
+
+async def havadurumu(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    try:
         params = {
-
-            "latitude": 41.0082,
-
-            "longitude": 28.9784,
-
+            "latitude": ISTANBUL_LAT,
+            "longitude": ISTANBUL_LON,
             "current": (
                 "temperature_2m,"
                 "relative_humidity_2m,"
@@ -484,595 +749,188 @@ def get_istanbul_weather():
                 "weather_code,"
                 "wind_speed_10m"
             ),
-
-            "temperature_unit": "celsius",
-
-            "wind_speed_unit": "kmh",
-
-            "timezone": "Europe/Istanbul"
+            "timezone": "Europe/Istanbul",
         }
 
         r = requests.get(
             WEATHER_URL,
             params=params,
-            timeout=15
+            timeout=15,
         )
 
         r.raise_for_status()
 
         data = r.json()
 
-        if "current" not in data:
+        current = data.get(
+            "current",
+            {}
+        )
 
-            print(
-                "HAVA VERİ HATASI:",
-                data
-            )
+        temperature = current.get(
+            "temperature_2m"
+        )
 
-            return None
+        humidity = current.get(
+            "relative_humidity_2m"
+        )
 
-        return data["current"]
+        apparent = current.get(
+            "apparent_temperature"
+        )
+
+        precipitation = current.get(
+            "precipitation"
+        )
+
+        wind = current.get(
+            "wind_speed_10m"
+        )
+
+        weather_code = current.get(
+            "weather_code"
+        )
+
+        weather_names = {
+            0: "Açık",
+            1: "Çoğunlukla açık",
+            2: "Parçalı bulutlu",
+            3: "Kapalı",
+            45: "Sisli",
+            48: "Kırağılı sis",
+            51: "Hafif çiseleme",
+            53: "Çiseleme",
+            55: "Yoğun çiseleme",
+            61: "Hafif yağmur",
+            63: "Yağmur",
+            65: "Kuvvetli yağmur",
+            71: "Hafif kar",
+            73: "Kar",
+            75: "Yoğun kar",
+            80: "Hafif sağanak",
+            81: "Sağanak",
+            82: "Kuvvetli sağanak",
+            95: "Gök gürültülü fırtına",
+        }
+
+        description = weather_names.get(
+            weather_code,
+            "Bilinmeyen hava"
+        )
+
+        now = datetime.now(
+            ZoneInfo("Europe/Istanbul")
+        )
+
+        days = [
+            "Pazartesi",
+            "Salı",
+            "Çarşamba",
+            "Perşembe",
+            "Cuma",
+            "Cumartesi",
+            "Pazar",
+        ]
+
+        months = [
+            "Ocak",
+            "Şubat",
+            "Mart",
+            "Nisan",
+            "Mayıs",
+            "Haziran",
+            "Temmuz",
+            "Ağustos",
+            "Eylül",
+            "Ekim",
+            "Kasım",
+            "Aralık",
+        ]
+
+        date_text = (
+            f"{now.day} "
+            f"{months[now.month - 1]} "
+            f"{now.year}, "
+            f"{days[now.weekday()]}"
+        )
+
+        await update.message.reply_text(
+            f"🌤️ İstanbul Hava Durumu\n\n"
+            f"📅 {date_text}\n"
+            f"🕒 {now.strftime('%H:%M')}\n\n"
+            f"🌡️ Sıcaklık: {temperature}°C\n"
+            f"🌡️ Hissedilen: {apparent}°C\n"
+            f"💧 Nem: %{humidity}\n"
+            f"🌧️ Yağış: {precipitation} mm\n"
+            f"💨 Rüzgar: {wind} km/s\n"
+            f"☁️ Durum: {description}"
+        )
 
     except Exception as e:
-
         print(
             "HAVA DURUMU HATASI:",
             repr(e)
         )
 
-        return None
-
-
-# =========================================================
-# TELEGRAM KOMUTLARI
-# =========================================================
-
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    await update.message.reply_text(
-
-        "🦇 ALFRED 2.0\n\n"
-
-        "Hoş geldin.\n"
-        "Sisteme hazırım.\n\n"
-
-        "Komutları görmek için:\n"
-        "/yardim"
-    )
-
-
-async def yardim(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    text = (
-
-        "🦇 ALFRED 2.0 KOMUTLARI\n\n"
-
-        "📈 PİYASA\n"
-        "/fiyatbtc\n"
-        "/fiyatsol\n"
-        "/tara\n\n"
-
-        "📰 HABERLER\n"
-        "/haber\n"
-        "/haberturk\n"
-        "/haberkripto\n\n"
-
-        "🌍 ARAÇLAR\n"
-        "/havadurumu\n"
-        "/cevir\n"
-        "/ozetcikar\n\n"
-
-        "🧠 ALFRED\n"
-        "/sor\n"
-        "/radar\n\n"
-
-        "⚙️ SİSTEM\n"
-        "/start\n"
-        "/yardim"
-    )
-
-    await update.message.reply_text(
-        text
-    )
-
-
-# =========================================================
-# BTC
-# =========================================================
-
-async def fiyatbtc(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    result = get_price(
-        "BTCUSDT"
-    )
-
-    if result is None:
-
         await update.message.reply_text(
-            "⚠️ BTC fiyatı alınamadı."
-        )
-
-        return
-
-    price, change = result
-
-    await update.message.reply_text(
-
-        "₿ BITCOIN\n\n"
-
-        f"💰 Fiyat: ${price:,.2f}\n"
-
-        f"📊 24s: {change:+.2f}%"
-    )
-
-
-# =========================================================
-# SOL
-# =========================================================
-
-async def fiyatsol(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    result = get_price(
-        "SOLUSDT"
-    )
-
-    if result is None:
-
-        await update.message.reply_text(
-            "⚠️ SOL fiyatı alınamadı."
-        )
-
-        return
-
-    price, change = result
-
-    await update.message.reply_text(
-
-        "◎ SOLANA\n\n"
-
-        f"💰 Fiyat: ${price:,.2f}\n"
-
-        f"📊 24s: {change:+.2f}%"
-    )
-
-
-# =========================================================
-# TARAMA
-# =========================================================
-
-async def tara(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    await update.message.reply_text(
-
-        "🔎 Alfred piyasayı tarıyor...\n"
-        "🦇 Birkaç saniye."
-    )
-
-    try:
-
-        r = requests.get(
-            BINANCE_URL,
-            timeout=15
-        )
-
-        r.raise_for_status()
-
-        data = r.json()
-
-        usdt_pairs = [
-
-            x for x in data
-
-            if x.get(
-                "symbol",
-                ""
-            ).endswith("USDT")
-
-            and float(
-                x.get(
-                    "quoteVolume",
-                    0
-                )
-            ) > 1000000
-        ]
-
-        usdt_pairs.sort(
-
-            key=lambda x:
-
-            float(
-                x.get(
-                    "priceChangePercent",
-                    0
-                )
-            ),
-
-            reverse=True
-        )
-
-        top = usdt_pairs[:5]
-
-        if not top:
-
-            await update.message.reply_text(
-                "⚠️ Tarama sonucu bulunamadı."
-            )
-
-            return
-
-        text = (
-            "📡 ALFRED — PİYASA TARAMASI\n\n"
-        )
-
-        for i, coin in enumerate(
-            top,
-            1
-        ):
-
-            symbol = coin[
-                "symbol"
-            ]
-
-            change = float(
-                coin.get(
-                    "priceChangePercent",
-                    0
-                )
-            )
-
-            price = float(
-                coin.get(
-                    "lastPrice",
-                    0
-                )
-            )
-
-            text += (
-
-                f"{i}. {symbol}\n"
-
-                f"💰 ${price:g}\n"
-
-                f"📈 24s: {change:+.2f}%\n\n"
-            )
-
-        text += (
-
-            "⚠️ Bu liste garanti kazanç "
-            "anlamına gelmez. Piyasa hızlı "
-            "değişebilir."
-        )
-
-        await update.message.reply_text(
-            text
-        )
-
-    except Exception as e:
-
-        print(
-            "TARAMA HATASI:",
-            repr(e)
-        )
-
-        await update.message.reply_text(
-            "⚠️ Piyasa taraması başarısız."
+            "❌ Hava durumu alınamadı."
         )
 
 
 # =========================================================
-# HABERLER
-# =========================================================
-
-async def haber(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    await update.message.reply_text(
-
-        news_text(
-            "DÜNYA HABERLERİ",
-            WORLD_FEEDS
-        )
-    )
-
-
-async def haberturk(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    await update.message.reply_text(
-
-        news_text(
-            "TÜRKİYE HABERLERİ",
-            TURKEY_FEEDS
-        )
-    )
-
-
-async def haberkripto(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    await update.message.reply_text(
-
-        news_text(
-            "KRİPTO HABERLERİ",
-            CRYPTO_FEEDS
-        )
-    )
-
-
-# =========================================================
-# HAVA DURUMU
-# =========================================================
-
-async def havadurumu(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    weather = get_istanbul_weather()
-
-    if weather is None:
-
-        await update.message.reply_text(
-            "⚠️ İstanbul hava durumu alınamadı."
-        )
-
-        return
-
-    now = datetime.now(
-        ZoneInfo("Europe/Istanbul")
-    )
-
-    day_names = [
-
-        "Pazartesi",
-        "Salı",
-        "Çarşamba",
-        "Perşembe",
-        "Cuma",
-        "Cumartesi",
-        "Pazar"
-    ]
-
-    month_names = [
-
-        "Ocak",
-        "Şubat",
-        "Mart",
-        "Nisan",
-        "Mayıs",
-        "Haziran",
-        "Temmuz",
-        "Ağustos",
-        "Eylül",
-        "Ekim",
-        "Kasım",
-        "Aralık"
-    ]
-
-    day_name = day_names[
-        now.weekday()
-    ]
-
-    month_name = month_names[
-        now.month - 1
-    ]
-
-    current_time = (
-
-        f"{day_name} — "
-
-        f"{now.day} {month_name} "
-        f"{now.year} — "
-
-        f"{now.strftime('%H:%M')}"
-    )
-
-    temperature = weather.get(
-        "temperature_2m"
-    )
-
-    apparent = weather.get(
-        "apparent_temperature"
-    )
-
-    humidity = weather.get(
-        "relative_humidity_2m"
-    )
-
-    precipitation = weather.get(
-        "precipitation"
-    )
-
-    wind = weather.get(
-        "wind_speed_10m"
-    )
-
-    code = weather.get(
-        "weather_code"
-    )
-
-    description = weather_description(
-        code
-    )
-
-    await update.message.reply_text(
-
-        "🌤️ İSTANBUL HAVA DURUMU\n\n"
-
-        f"📅 {current_time}\n\n"
-
-        f"{description}\n\n"
-
-        f"🌡️ Sıcaklık: "
-        f"{temperature}°C\n"
-
-        f"🤚 Hissedilen: "
-        f"{apparent}°C\n"
-
-        f"💧 Nem: "
-        f"%{humidity}\n"
-
-        f"🌧️ Yağış: "
-        f"{precipitation} mm\n"
-
-        f"💨 Rüzgar: "
-        f"{wind} km/sa"
-    )
-
-
-# =========================================================
-# ÇEVİR
-# =========================================================
-
-async def cevir(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    if not context.args:
-
-        await update.message.reply_text(
-
-            "🌍 ALFRED ÇEVİRİ\n\n"
-
-            "Çevirmek istediğin metni "
-            "/cevir komutundan sonra yaz.\n\n"
-
-            "Örnek:\n"
-            "/cevir Hello, how are you?"
-        )
-
-        return
-
-    text = " ".join(
-        context.args
-    )
-
-    await update.message.reply_text(
-
-        "🌍 Metin analiz ediliyor...\n"
-        "🦇 Alfred çalışıyor."
-    )
-
-    translated, source_language = (
-        translate_to_turkish(text)
-    )
-
-    if translated is None:
-
-        await update.message.reply_text(
-
-            "⚠️ Çeviri yapılamadı.\n\n"
-
-            "Metnin dili desteklenen 30 dil "
-            "arasında olmayabilir veya "
-            "çeviri servisi geçici olarak "
-            "yanıt vermiyor olabilir."
-        )
-
-        return
-
-    detected_name = LANGUAGE_NAMES.get(
-
-        source_language,
-
-        source_language
-        if source_language
-        else "Bilinmeyen dil"
-    )
-
-    await update.message.reply_text(
-
-        "🌍 ALFRED — ÇEVİRİ\n\n"
-
-        f"🔎 Algılanan dil: "
-        f"{detected_name}\n\n"
-
-        f"📝 Orijinal:\n"
-        f"{text}\n\n"
-
-        "🇹🇷 Türkçe:\n"
-        f"{translated}"
-    )
-
-
-# =========================================================
-# ÖZET
+# /OZETCIKAR
 # =========================================================
 
 async def ozetcikar(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
-
     if not context.args:
-
         await update.message.reply_text(
-
-            "📝 ALFRED ÖZET\n\n"
-
-            "Özetlemek istediğin metni "
-            "komuttan sonra yaz.\n\n"
-
+            "📝 /ozetcikar\n\n"
+            "Özetlemek istediğin metni komuttan sonra yaz.\n\n"
             "Örnek:\n"
-            "/ozetcikar Buraya uzun metni yaz..."
+            "/ozetcikar Bitcoin bugün yükseldi..."
         )
-
         return
 
     text = " ".join(
         context.args
     )
 
+    # Şimdilik basit özetleme
+    # AI sistemi daha sonra bağlanabilir.
+
+    words = text.split()
+
+    if len(words) <= 40:
+        summary = text
+    else:
+        summary = " ".join(
+            words[:40]
+        ) + "..."
+
     await update.message.reply_text(
-
-        "📝 Metin alındı.\n\n"
-
-        "🦇 AI özet sistemi henüz "
-        "bağlanmadı."
+        "📝 Özet\n\n"
+        + summary
     )
 
 
 # =========================================================
-# SOR
+# /SOR
 # =========================================================
 
 async def sor(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
-
     if not context.args:
-
         await update.message.reply_text(
-
-            "🧠 ALFRED SORU SİSTEMİ\n\n"
-
+            "🧠 /sor\n\n"
+            "Bana bir soru yaz.\n\n"
             "Örnek:\n"
-            "/sor Bitcoin nedir?"
+            "/sor Bitcoin neden yükseliyor?"
         )
-
         return
 
     question = " ".join(
@@ -1080,64 +938,114 @@ async def sor(
     )
 
     await update.message.reply_text(
-
-        "🧠 Alfred sorunu aldı.\n\n"
-
+        "🧠 Alfred:\n\n"
+        "Sorunu aldım.\n\n"
         f"❓ {question}\n\n"
-
-        "AI cevap sistemi henüz "
-        "bağlanmadı."
+        "AI bağlantısı bir sonraki aşamada "
+        "eklenecek."
     )
 
 
 # =========================================================
-# RADAR
+# /RADAR
 # =========================================================
 
 async def radar(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
-
     await update.message.reply_text(
-
-        "📡 ALFRED RADAR\n\n"
-
-        "🌍 Küresel olay radarı hazır.\n\n"
-
-        "Gelişmiş anomali ve olay taraması "
-        "bir sonraki aşamada bağlanacak."
+        "🦇 Alfred Radar\n\n"
+        "🌍 Olağandışı olaylar ve piyasa "
+        "hareketleri için radar sistemi "
+        "hazırlanıyor.\n\n"
+        "Bir sonraki aşamada haberler, "
+        "kripto hareketleri ve önemli olaylar "
+        "tek bir radarda birleştirilecek."
     )
 
 
 # =========================================================
-# BOT
+# /YARDIM
+# =========================================================
+
+async def yardim(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    text = """🦇 ALFRED 2.0 KOMUTLARI
+
+📈 PİYASA
+/fiyatbtc
+/fiyatsol
+/tara
+
+📰 HABERLER
+/haber
+/haberturk
+/haberkripto
+
+🌍 ARAÇLAR
+/havadurumu
+/cevir
+/ozetcikar
+
+🧠 ALFRED
+/sor
+/radar
+
+⚙️ SİSTEM
+/start
+/yardim
+"""
+
+    await update.message.reply_text(
+        text
+    )
+
+
+# =========================================================
+# /START
+# =========================================================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    await update.message.reply_text(
+        "🦇 Alfred 2.0 aktif.\n\n"
+        "Emrindeyim.\n\n"
+        "Komutları görmek için:\n"
+        "/yardim"
+    )
+
+
+# =========================================================
+# MAIN
 # =========================================================
 
 def main():
 
     if not TOKEN:
-
         raise RuntimeError(
             "TELEGRAM_BOT_TOKEN bulunamadı."
         )
 
-    app = (
-        Application
-        .builder()
+    application = (
+        Application.builder()
         .token(TOKEN)
         .build()
     )
 
     # Sistem
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "start",
             start
         )
     )
 
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "yardim",
             yardim
@@ -1145,21 +1053,21 @@ def main():
     )
 
     # Piyasa
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "fiyatbtc",
             fiyatbtc
         )
     )
 
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "fiyatsol",
             fiyatsol
         )
     )
 
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "tara",
             tara
@@ -1167,21 +1075,21 @@ def main():
     )
 
     # Haberler
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "haber",
             haber
         )
     )
 
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "haberturk",
             haberturk
         )
     )
 
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "haberkripto",
             haberkripto
@@ -1189,21 +1097,21 @@ def main():
     )
 
     # Araçlar
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "havadurumu",
             havadurumu
         )
     )
 
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "cevir",
             cevir
         )
     )
 
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "ozetcikar",
             ozetcikar
@@ -1211,25 +1119,23 @@ def main():
     )
 
     # Alfred
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "sor",
             sor
         )
     )
 
-    app.add_handler(
+    application.add_handler(
         CommandHandler(
             "radar",
             radar
         )
     )
 
-    print(
-        "🦇 Alfred 2.0 çalışıyor..."
-    )
+    print("🦇 Alfred 2.0 başlatılıyor...")
 
-    app.run_polling()
+    application.run_polling()
 
 
 if __name__ == "__main__":
