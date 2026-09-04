@@ -13,6 +13,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 BINANCE_URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+TRANSLATE_URL = "https://api.mymemory.translated.net/get"
 
 
 # =========================
@@ -202,7 +203,6 @@ async def havadurumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     description = weather_description(code)
 
-    # İstanbul yerel saati
     now = datetime.now(
         ZoneInfo("Europe/Istanbul")
     )
@@ -256,6 +256,79 @@ async def havadurumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(text)
+
+
+# =========================
+# ÇEVİRİ
+# =========================
+
+def translate_to_turkish(text):
+    try:
+        params = {
+            "q": text,
+            "langpair": "aut|tr"
+        }
+
+        r = requests.get(
+            TRANSLATE_URL,
+            params=params,
+            timeout=20
+        )
+
+        r.raise_for_status()
+
+        data = r.json()
+
+        response_data = data.get("responseData", {})
+        translated = response_data.get(
+            "translatedText",
+            ""
+        ).strip()
+
+        if not translated:
+            print("ÇEVİRİ VERİ HATASI:", data)
+            return None
+
+        return translated
+
+    except Exception as e:
+        print("ÇEVİRİ HATASI:", repr(e))
+        return None
+
+
+async def cevir(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "🌍 ALFRED ÇEVİRİ\n\n"
+            "Çevirmek istediğin metni /cevir komutundan "
+            "sonra yaz.\n\n"
+            "Örnek:\n"
+            "/cevir Hello, how are you?"
+        )
+        return
+
+    text = " ".join(context.args)
+
+    await update.message.reply_text(
+        "🌍 Metin çevriliyor...\n"
+        "🦇 Alfred çalışıyor."
+    )
+
+    translated = translate_to_turkish(text)
+
+    if translated is None:
+        await update.message.reply_text(
+            "⚠️ Çeviri yapılamadı.\n\n"
+            "Lütfen biraz sonra tekrar dene."
+        )
+        return
+
+    await update.message.reply_text(
+        "🌍 ALFRED — ÇEVİRİ\n\n"
+        f"📝 Orijinal:\n{text}\n\n"
+        "🇹🇷 Türkçe:\n"
+        f"{translated}"
+    )
 
 
 # =========================
@@ -550,14 +623,8 @@ async def haberkripto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# ARAÇLAR
+# ÖZET
 # =========================
-
-async def cevir(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🌍 Çeviri modülü hazırlanıyor."
-    )
-
 
 async def ozetcikar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
