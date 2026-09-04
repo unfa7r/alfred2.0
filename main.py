@@ -111,14 +111,243 @@ CRYPTO_FEEDS = [
 ]
 
 
+# =========================================================
+# 30 DİLLİ ÇEVİRİ SİSTEMİ
+# =========================================================
+
+LANGUAGE_NAMES = {
+
+    "tr": "🇹🇷 Türkçe",
+    "en": "🇬🇧 İngilizce",
+    "de": "🇩🇪 Almanca",
+    "fr": "🇫🇷 Fransızca",
+    "es": "🇪🇸 İspanyolca",
+    "it": "🇮🇹 İtalyanca",
+    "pt": "🇵🇹 Portekizce",
+    "ru": "🇷🇺 Rusça",
+    "zh-CN": "🇨🇳 Çince",
+    "ja": "🇯🇵 Japonca",
+    "ko": "🇰🇷 Korece",
+    "ar": "🇸🇦 Arapça",
+    "hi": "🇮🇳 Hintçe",
+    "nl": "🇳🇱 Felemenkçe",
+    "pl": "🇵🇱 Lehçe",
+    "uk": "🇺🇦 Ukraynaca",
+    "th": "🇹🇭 Tayca",
+    "vi": "🇻🇳 Vietnamca",
+    "id": "🇮🇩 Endonezce",
+    "ms": "🇲🇾 Malayca",
+    "sv": "🇸🇪 İsveççe",
+    "no": "🇳🇴 Norveççe",
+    "da": "🇩🇰 Danca",
+    "fi": "🇫🇮 Fince",
+    "cs": "🇨🇿 Çekçe",
+    "el": "🇬🇷 Yunanca",
+    "hu": "🇭🇺 Macarca",
+    "ro": "🇷🇴 Romence",
+    "he": "🇮🇱 İbranice",
+    "sk": "🇸🇰 Slovakça"
+}
+
+
+MYMEMORY_CODES = {
+
+    "tr": "tr",
+    "en": "en",
+    "de": "de",
+    "fr": "fr",
+    "es": "es",
+    "it": "it",
+    "pt": "pt",
+    "ru": "ru",
+    "zh-CN": "zh-CN",
+    "ja": "ja",
+    "ko": "ko",
+    "ar": "ar",
+    "hi": "hi",
+    "nl": "nl",
+    "pl": "pl",
+    "uk": "uk",
+    "th": "th",
+    "vi": "vi",
+    "id": "id",
+    "ms": "ms",
+    "sv": "sv",
+    "no": "no",
+    "da": "da",
+    "fi": "fi",
+    "cs": "cs",
+    "el": "el",
+    "hu": "hu",
+    "ro": "ro",
+    "he": "he",
+    "sk": "sk"
+}
+
+
+def detect_language(text):
+
+    try:
+
+        detected = detect(text)
+
+        if detected == "zh":
+            return "zh-CN"
+
+        if detected in MYMEMORY_CODES:
+            return detected
+
+        return None
+
+    except LangDetectException as e:
+
+        print(
+            "DİL ALGILAMA HATASI:",
+            repr(e)
+        )
+
+        return None
+
+    except Exception as e:
+
+        print(
+            "DİL ALGILAMA HATASI:",
+            repr(e)
+        )
+
+        return None
+
+
+def translate_to_turkish(text):
+
+    try:
+
+        source_language = detect_language(text)
+
+        if source_language is None:
+            return None, None
+
+        if source_language == "tr":
+            return text, source_language
+
+        source_code = MYMEMORY_CODES.get(
+            source_language
+        )
+
+        if not source_code:
+            return None, source_language
+
+        params = {
+            "q": text,
+            "langpair": f"{source_code}|tr"
+        }
+
+        r = requests.get(
+            TRANSLATE_URL,
+            params=params,
+            timeout=20
+        )
+
+        r.raise_for_status()
+
+        data = r.json()
+
+        response_data = data.get(
+            "responseData",
+            {}
+        )
+
+        translated = response_data.get(
+            "translatedText",
+            ""
+        ).strip()
+
+        if not translated:
+            print(
+                "ÇEVİRİ VERİ HATASI:",
+                data
+            )
+            return None, source_language
+
+        # Bazı durumlarda servis hata mesajını
+        # translatedText alanında döndürebilir.
+        if (
+            "INVALID SOURCE LANGUAGE"
+            in translated.upper()
+            or "MYMEMORY" in translated.upper()
+            and "ERROR" in translated.upper()
+        ):
+            print(
+                "ÇEVİRİ SERVİS HATASI:",
+                translated
+            )
+
+            return None, source_language
+
+        return translated, source_language
+
+    except Exception as e:
+
+        print(
+            "ÇEVİRİ HATASI:",
+            repr(e)
+        )
+
+        return None, None
+
+
+# =========================================================
+# HABER BAŞLIĞI ÇEVİRİSİ
+# =========================================================
+
+def translate_news_title(title):
+
+    """
+    Haber başlığını Türkçeye çevirmeyi dener.
+
+    Çeviri başarısız olursa orijinal başlığı döndürür.
+    Böylece haber sistemi hiçbir zaman sadece çeviri
+    servisi yüzünden bozulmaz.
+    """
+
+    try:
+
+        translated, source_language = (
+            translate_to_turkish(title)
+        )
+
+        if translated:
+            return translated
+
+        return title
+
+    except Exception as e:
+
+        print(
+            "HABER BAŞLIK ÇEVİRİ HATASI:",
+            repr(e)
+        )
+
+        return title
+
+
+# =========================================================
+# RSS HABER ÇEKME
+# =========================================================
+
 def get_rss_news(feeds, limit=5):
+
     results = []
+
     seen = set()
 
     for feed_url, source_name in feeds:
 
         try:
-            feed = feedparser.parse(feed_url)
+
+            feed = feedparser.parse(
+                feed_url
+            )
 
             for entry in feed.entries:
 
@@ -140,28 +369,45 @@ def get_rss_news(feeds, limit=5):
 
                 seen.add(link)
 
+                # Haber başlığını Türkçeleştir.
+                # Başarısız olursa orijinali kullan.
+                translated_title = (
+                    translate_news_title(title)
+                )
+
                 results.append({
-                    "title": title,
+
+                    "title": translated_title,
+
+                    "original_title": title,
+
                     "url": link,
+
                     "domain": source_name
                 })
 
+                if len(results) >= limit:
+                    return results
+
         except Exception as e:
+
             print(
                 f"RSS HATASI ({source_name}):",
                 repr(e)
             )
 
-    return results[:limit]
+    return results
 
 
 def news_text(title, feeds):
+
     news = get_rss_news(
         feeds,
         limit=5
     )
 
     if not news:
+
         return (
             f"📰 {title}\n\n"
             "Şu anda haber alınamadı."
@@ -172,8 +418,11 @@ def news_text(title, feeds):
     for i, item in enumerate(news, 1):
 
         text += (
+
             f"{i}. {item['title']}\n"
+
             f"📡 {item['domain']}\n"
+
             f"🔗 {item['url']}\n\n"
         )
 
@@ -189,45 +438,25 @@ def weather_description(code):
     descriptions = {
 
         0: "☀️ Açık",
-
         1: "🌤️ Çoğunlukla açık",
-
         2: "⛅ Parçalı bulutlu",
-
         3: "☁️ Kapalı",
-
         45: "🌫️ Sisli",
-
         48: "🌫️ Kırağılı sis",
-
         51: "🌦️ Hafif çisenti",
-
         53: "🌦️ Çisenti",
-
         55: "🌧️ Yoğun çisenti",
-
         61: "🌧️ Hafif yağmur",
-
         63: "🌧️ Yağmur",
-
         65: "🌧️ Kuvvetli yağmur",
-
         71: "🌨️ Hafif kar",
-
         73: "🌨️ Kar",
-
         75: "❄️ Yoğun kar",
-
         80: "🌦️ Hafif sağanak",
-
         81: "🌧️ Sağanak",
-
         82: "⛈️ Kuvvetli sağanak",
-
         95: "⛈️ Gök gürültülü fırtına",
-
         96: "⛈️ Dolu ihtimali",
-
         99: "⛈️ Kuvvetli dolu"
     }
 
@@ -295,250 +524,6 @@ def get_istanbul_weather():
 
 
 # =========================================================
-# 30 DİLLİ ÇEVİRİ SİSTEMİ
-# =========================================================
-
-LANGUAGE_NAMES = {
-
-    "tr": "🇹🇷 Türkçe",
-
-    "en": "🇬🇧 İngilizce",
-
-    "de": "🇩🇪 Almanca",
-
-    "fr": "🇫🇷 Fransızca",
-
-    "es": "🇪🇸 İspanyolca",
-
-    "it": "🇮🇹 İtalyanca",
-
-    "pt": "🇵🇹 Portekizce",
-
-    "ru": "🇷🇺 Rusça",
-
-    "zh-CN": "🇨🇳 Çince",
-
-    "ja": "🇯🇵 Japonca",
-
-    "ko": "🇰🇷 Korece",
-
-    "ar": "🇸🇦 Arapça",
-
-    "hi": "🇮🇳 Hintçe",
-
-    "nl": "🇳🇱 Felemenkçe",
-
-    "pl": "🇵🇱 Lehçe",
-
-    "uk": "🇺🇦 Ukraynaca",
-
-    "th": "🇹🇭 Tayca",
-
-    "vi": "🇻🇳 Vietnamca",
-
-    "id": "🇮🇩 Endonezce",
-
-    "ms": "🇲🇾 Malayca",
-
-    "sv": "🇸🇪 İsveççe",
-
-    "no": "🇳🇴 Norveççe",
-
-    "da": "🇩🇰 Danca",
-
-    "fi": "🇫🇮 Fince",
-
-    "cs": "🇨🇿 Çekçe",
-
-    "el": "🇬🇷 Yunanca",
-
-    "hu": "🇭🇺 Macarca",
-
-    "ro": "🇷🇴 Romence",
-
-    "he": "🇮🇱 İbranice",
-
-    "sk": "🇸🇰 Slovakça"
-}
-
-
-# MyMemory için dil kodları
-MYMEMORY_CODES = {
-
-    "tr": "tr",
-
-    "en": "en",
-
-    "de": "de",
-
-    "fr": "fr",
-
-    "es": "es",
-
-    "it": "it",
-
-    "pt": "pt",
-
-    "ru": "ru",
-
-    "zh-CN": "zh-CN",
-
-    "ja": "ja",
-
-    "ko": "ko",
-
-    "ar": "ar",
-
-    "hi": "hi",
-
-    "nl": "nl",
-
-    "pl": "pl",
-
-    "uk": "uk",
-
-    "th": "th",
-
-    "vi": "vi",
-
-    "id": "id",
-
-    "ms": "ms",
-
-    "sv": "sv",
-
-    "no": "no",
-
-    "da": "da",
-
-    "fi": "fi",
-
-    "cs": "cs",
-
-    "el": "el",
-
-    "hu": "hu",
-
-    "ro": "ro",
-
-    "he": "he",
-
-    "sk": "sk"
-}
-
-
-def detect_language(text):
-
-    try:
-
-        detected = detect(text)
-
-        # langdetect'in bazı kodlarını
-        # sistemimizde kullanılan kodlara çevir
-
-        if detected == "zh":
-            return "zh-CN"
-
-        if detected in MYMEMORY_CODES:
-            return detected
-
-        # Desteklemediğimiz bir dil algılanırsa
-        # İngilizce varsaymak yerine hata döndür
-
-        return None
-
-    except LangDetectException as e:
-
-        print(
-            "DİL ALGILAMA HATASI:",
-            repr(e)
-        )
-
-        return None
-
-    except Exception as e:
-
-        print(
-            "DİL ALGILAMA HATASI:",
-            repr(e)
-        )
-
-        return None
-
-
-def translate_to_turkish(text):
-
-    try:
-
-        source_language = detect_language(text)
-
-        if source_language is None:
-            return None, None
-
-        if source_language == "tr":
-            return text, source_language
-
-        source_code = MYMEMORY_CODES.get(
-            source_language
-        )
-
-        if not source_code:
-            return None, source_language
-
-        params = {
-
-            "q": text,
-
-            "langpair": (
-                f"{source_code}|tr"
-            )
-        }
-
-        r = requests.get(
-
-            TRANSLATE_URL,
-
-            params=params,
-
-            timeout=20
-        )
-
-        r.raise_for_status()
-
-        data = r.json()
-
-        response_data = data.get(
-            "responseData",
-            {}
-        )
-
-        translated = response_data.get(
-            "translatedText",
-            ""
-        ).strip()
-
-        if not translated:
-
-            print(
-                "ÇEVİRİ VERİ HATASI:",
-                data
-            )
-
-            return None, source_language
-
-        return translated, source_language
-
-    except Exception as e:
-
-        print(
-            "ÇEVİRİ HATASI:",
-            repr(e)
-        )
-
-        return None, None
-
-
-# =========================================================
 # TELEGRAM KOMUTLARI
 # =========================================================
 
@@ -550,8 +535,10 @@ async def start(
     await update.message.reply_text(
 
         "🦇 ALFRED 2.0\n\n"
+
         "Hoş geldin.\n"
         "Sisteme hazırım.\n\n"
+
         "Komutları görmek için:\n"
         "/yardim"
     )
@@ -563,6 +550,7 @@ async def yardim(
 ):
 
     text = (
+
         "🦇 ALFRED 2.0 KOMUTLARI\n\n"
 
         "📈 PİYASA\n"
@@ -589,7 +577,9 @@ async def yardim(
         "/yardim"
     )
 
-    await update.message.reply_text(text)
+    await update.message.reply_text(
+        text
+    )
 
 
 # =========================================================
@@ -601,7 +591,9 @@ async def fiyatbtc(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    result = get_price("BTCUSDT")
+    result = get_price(
+        "BTCUSDT"
+    )
 
     if result is None:
 
@@ -618,6 +610,7 @@ async def fiyatbtc(
         "₿ BITCOIN\n\n"
 
         f"💰 Fiyat: ${price:,.2f}\n"
+
         f"📊 24s: {change:+.2f}%"
     )
 
@@ -631,7 +624,9 @@ async def fiyatsol(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    result = get_price("SOLUSDT")
+    result = get_price(
+        "SOLUSDT"
+    )
 
     if result is None:
 
@@ -648,6 +643,7 @@ async def fiyatsol(
         "◎ SOLANA\n\n"
 
         f"💰 Fiyat: ${price:,.2f}\n"
+
         f"📊 24s: {change:+.2f}%"
     )
 
@@ -662,6 +658,7 @@ async def tara(
 ):
 
     await update.message.reply_text(
+
         "🔎 Alfred piyasayı tarıyor...\n"
         "🦇 Birkaç saniye."
     )
@@ -681,17 +678,23 @@ async def tara(
 
             x for x in data
 
-            if x.get("symbol", "").endswith(
-                "USDT"
-            )
+            if x.get(
+                "symbol",
+                ""
+            ).endswith("USDT")
+
             and float(
-                x.get("quoteVolume", 0)
+                x.get(
+                    "quoteVolume",
+                    0
+                )
             ) > 1000000
         ]
 
         usdt_pairs.sort(
 
             key=lambda x:
+
             float(
                 x.get(
                     "priceChangePercent",
@@ -716,9 +719,14 @@ async def tara(
             "📡 ALFRED — PİYASA TARAMASI\n\n"
         )
 
-        for i, coin in enumerate(top, 1):
+        for i, coin in enumerate(
+            top,
+            1
+        ):
 
-            symbol = coin["symbol"]
+            symbol = coin[
+                "symbol"
+            ]
 
             change = float(
                 coin.get(
@@ -744,8 +752,10 @@ async def tara(
             )
 
         text += (
-            "⚠️ Bu liste garanti kazanç anlamına "
-            "gelmez. Piyasa hızlı değişebilir."
+
+            "⚠️ Bu liste garanti kazanç "
+            "anlamına gelmez. Piyasa hızlı "
+            "değişebilir."
         )
 
         await update.message.reply_text(
@@ -871,8 +881,10 @@ async def havadurumu(
     current_time = (
 
         f"{day_name} — "
+
         f"{now.day} {month_name} "
         f"{now.year} — "
+
         f"{now.strftime('%H:%M')}"
     )
 
@@ -930,7 +942,7 @@ async def havadurumu(
 
 
 # =========================================================
-# ÇEVİRİ
+# ÇEVİR
 # =========================================================
 
 async def cevir(
@@ -948,7 +960,6 @@ async def cevir(
             "/cevir komutundan sonra yaz.\n\n"
 
             "Örnek:\n"
-
             "/cevir Hello, how are you?"
         )
 
