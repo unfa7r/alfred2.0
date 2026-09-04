@@ -1388,19 +1388,16 @@ async def radar(
             )
             return
 
-        # Öncelik hesapla
         for item in all_news:
             item["priority"] = radar_priority(
                 item["title"]
             )
 
-        # Önce önem derecesi
         all_news.sort(
             key=lambda x: x["priority"],
             reverse=True,
         )
 
-        # Aynı başlıkların tekrarını engelle
         final_news = []
         seen_titles = set()
 
@@ -1465,7 +1462,6 @@ async def radar(
             "anahtar kelimelere göre belirlenir."
         )
 
-        # Telegram limit kontrolü
         max_length = 4000
 
         if len(text) <= max_length:
@@ -1511,30 +1507,81 @@ async def yardim(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
-    text = """🦇 ALFRED 2.0 KOMUTLARI
+    text = """🦇 ALFRED 2.0 — YARDIM
 
+Merhaba. Ben Alfred. Aşağıdaki komutlarla size yardımcı olabilirim.
+
+━━━━━━━━━━━━━━
 📈 PİYASA
+━━━━━━━━━━━━━━
+
 /fiyatbtc
+₿ Bitcoin'in güncel fiyatını ve 24 saatlik değişimini gösterir.
+
 /fiyatsol
+◎ Solana'nın güncel fiyatını ve 24 saatlik değişimini gösterir.
+
 /tara
+🔎 Binance piyasasını tarar ve dikkat çeken yükseliş/momentum hareketlerini listeler.
 
+━━━━━━━━━━━━━━
 📰 HABERLER
+━━━━━━━━━━━━━━
+
 /haber
+🌍 Dünyadan önemli güncel haberleri getirir.
+
 /haberturk
+🇹🇷 Türkiye'den önemli güncel haberleri getirir.
+
 /haberkripto
+₿ Kripto para dünyasındaki güncel gelişmeleri getirir.
 
+━━━━━━━━━━━━━━
 🌍 ARAÇLAR
+━━━━━━━━━━━━━━
+
 /havadurumu
+🌦️ Güncel hava durumunu gösterir.
+
 /cevir
+🌐 Yazdığınız metni otomatik olarak algılar ve Türkçeye çevirir.
+
+Örnek:
+/cevir Hello, how are you?
+
 /ozetcikar
+📝 Uzun bir metni analiz ederek daha kısa ve anlaşılır hâle getirir.
 
+Örnek:
+/ozetcikar [metin]
+
+━━━━━━━━━━━━━━
 🧠 ALFRED
-/sor
-/radar
+━━━━━━━━━━━━━━
 
+/sor
+🤖 Alfred'e istediğiniz konuda soru sorabilirsiniz.
+
+Örnek:
+/sor Yapay zeka nasıl çalışır?
+
+/radar
+📡 Dünyadaki önemli gelişmeleri ve ekonomik olayları tarar.
+
+━━━━━━━━━━━━━━
 ⚙️ SİSTEM
+━━━━━━━━━━━━━━
+
 /start
+🦇 Alfred'i başlatır ve ana menüyü gösterir.
+
 /yardim
+📖 Bu yardım menüsünü gösterir.
+
+━━━━━━━━━━━━━━
+
+🦇 Alfred hazır. Buyurun, sizi dinliyorum.
 """
 
     await update.message.reply_text(
@@ -1551,8 +1598,7 @@ async def start(
     context: ContextTypes.DEFAULT_TYPE,
 ):
     await update.message.reply_text(
-        "🦇 Alfred 2.0 aktif.\n\n"
-        "Emrindeyim.\n\n"
+        "🦇 Alfred hazır. Buyurun, sizi dinliyorum.\n\n"
         "Komutları görmek için:\n"
         "/yardim"
     )
