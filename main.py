@@ -69,6 +69,23 @@ CRYPTO_FEEDS = [
     ("https://www.theblock.co/rss.xml", "The Block"),
 ]
 
+# RADAR KAYNAKLARI
+RADAR_WORLD_FEEDS = [
+    ("https://feeds.bbci.co.uk/news/world/rss.xml", "BBC Dünya"),
+    ("https://rss.dw.com/rdf/rss-en-world", "DW Dünya"),
+]
+
+RADAR_TURKEY_FEEDS = [
+    ("https://www.aa.com.tr/tr/rss/default?cat=guncel", "Anadolu Ajansı"),
+    ("https://feeds.bbci.co.uk/turkce/rss.xml", "BBC Türkçe"),
+    ("https://rss.dw.com/rdf/rss-tur", "DW Türkçe"),
+]
+
+RADAR_ECONOMY_FEEDS = [
+    ("https://feeds.bbci.co.uk/news/business/rss.xml", "BBC Ekonomi"),
+    ("https://rss.dw.com/rdf/rss-en-bus", "DW Ekonomi"),
+]
+
 
 # =========================================================
 # DİL
@@ -972,7 +989,6 @@ async def ozetcikar(
         context.args
     )
 
-    # AI varsa gerçek özetleme
     if groq_client:
 
         try:
@@ -1017,7 +1033,6 @@ async def ozetcikar(
                 repr(e)
             )
 
-    # AI çalışmazsa basit fallback
     words = text.split()
 
     if len(words) <= 40:
@@ -1107,7 +1122,6 @@ async def sor(
             )
             return
 
-        # Telegram mesaj limiti için böl
         max_length = 4000
 
         if len(answer) <= max_length:
@@ -1175,6 +1189,152 @@ async def sor(
 
 
 # =========================================================
+# RADAR YARDIMCI FONKSİYONLARI
+# =========================================================
+
+def get_radar_news(
+    feeds,
+    limit=5,
+):
+    results = []
+    seen = set()
+
+    for feed_url, source_name in feeds:
+
+        try:
+            feed = feedparser.parse(
+                feed_url
+            )
+
+            for entry in feed.entries:
+
+                title = entry.get(
+                    "title",
+                    ""
+                ).strip()
+
+                link = entry.get(
+                    "link",
+                    ""
+                ).strip()
+
+                if not title or not link:
+                    continue
+
+                if link in seen:
+                    continue
+
+                seen.add(link)
+
+                translated_title = (
+                    translate_news_title(
+                        title
+                    )
+                )
+
+                results.append({
+                    "title": translated_title,
+                    "original_title": title,
+                    "url": link,
+                    "domain": source_name,
+                })
+
+                if len(results) >= limit:
+                    return results
+
+        except Exception as e:
+            print(
+                f"RADAR RSS HATASI ({source_name}):",
+                repr(e)
+            )
+
+    return results
+
+
+def radar_priority(title):
+    text = title.lower()
+
+    critical_words = [
+        "war",
+        "attack",
+        "invasion",
+        "missile",
+        "earthquake",
+        "tsunami",
+        "nuclear",
+        "emergency",
+        "crisis",
+        "collapse",
+        "default",
+        "bank failure",
+        "banking crisis",
+        "faiz kararı",
+        "deprem",
+        "savaş",
+        "saldırı",
+        "işgal",
+        "füze",
+        "nükleer",
+        "acil durum",
+        "kriz",
+        "çöküş",
+        "iflas",
+        "banka krizi",
+    ]
+
+    important_words = [
+        "fed",
+        "ecb",
+        "central bank",
+        "interest rate",
+        "inflation",
+        "recession",
+        "oil",
+        "gold",
+        "tariff",
+        "sanctions",
+        "election",
+        "government",
+        "economy",
+        "economic",
+        "market",
+        "enflasyon",
+        "merkez bankası",
+        "faiz",
+        "resesyon",
+        "petrol",
+        "altın",
+        "gümrük",
+        "yaptırım",
+        "seçim",
+        "hükümet",
+        "ekonomi",
+        "ekonomik",
+        "piyasa",
+    ]
+
+    for word in critical_words:
+        if word in text:
+            return 3
+
+    for word in important_words:
+        if word in text:
+            return 2
+
+    return 1
+
+
+def radar_label(priority):
+    if priority == 3:
+        return "🔴 KRİTİK"
+
+    if priority == 2:
+        return "🟠 ÖNEMLİ"
+
+    return "🟢 GÜNDEM"
+
+
+# =========================================================
 # /RADAR
 # =========================================================
 
@@ -1183,14 +1343,164 @@ async def radar(
     context: ContextTypes.DEFAULT_TYPE,
 ):
     await update.message.reply_text(
-        "🦇 Alfred Radar\n\n"
-        "🌍 Olağandışı olaylar ve piyasa "
-        "hareketleri için radar sistemi "
-        "hazırlanıyor.\n\n"
-        "Bir sonraki aşamada haberler, "
-        "kripto hareketleri ve önemli olaylar "
-        "tek bir radarda birleştirilecek."
+        "📡 Alfred Radar çalışıyor...\n\n"
+        "🌍 Dünya\n"
+        "🇹🇷 Türkiye\n"
+        "💰 Ekonomi\n"
+        "🚨 Önemli gelişmeler taranıyor..."
     )
+
+    try:
+
+        world_news = get_radar_news(
+            RADAR_WORLD_FEEDS,
+            limit=4,
+        )
+
+        turkey_news = get_radar_news(
+            RADAR_TURKEY_FEEDS,
+            limit=4,
+        )
+
+        economy_news = get_radar_news(
+            RADAR_ECONOMY_FEEDS,
+            limit=4,
+        )
+
+        all_news = []
+
+        for item in world_news:
+            item["category"] = "🌍 Dünya"
+            all_news.append(item)
+
+        for item in turkey_news:
+            item["category"] = "🇹🇷 Türkiye"
+            all_news.append(item)
+
+        for item in economy_news:
+            item["category"] = "💰 Ekonomi"
+            all_news.append(item)
+
+        if not all_news:
+            await update.message.reply_text(
+                "📡 Alfred Radar\n\n"
+                "Şu anda radar verisi alınamadı."
+            )
+            return
+
+        # Öncelik hesapla
+        for item in all_news:
+            item["priority"] = radar_priority(
+                item["title"]
+            )
+
+        # Önce önem derecesi
+        all_news.sort(
+            key=lambda x: x["priority"],
+            reverse=True,
+        )
+
+        # Aynı başlıkların tekrarını engelle
+        final_news = []
+        seen_titles = set()
+
+        for item in all_news:
+
+            normalized = (
+                item["title"]
+                .lower()
+                .strip()
+            )
+
+            if normalized in seen_titles:
+                continue
+
+            seen_titles.add(
+                normalized
+            )
+
+            final_news.append(
+                item
+            )
+
+            if len(final_news) >= 10:
+                break
+
+        now = datetime.now(
+            ZoneInfo(
+                "Europe/Istanbul"
+            )
+        )
+
+        text = (
+            "📡 ALFRED RADAR\n\n"
+            f"🕒 {now.strftime('%d.%m.%Y %H:%M')}\n\n"
+            "Dünya, Türkiye ve ekonomi "
+            "gelişmeleri tarandı.\n\n"
+        )
+
+        for index, item in enumerate(
+            final_news,
+            1
+        ):
+
+            priority_text = radar_label(
+                item["priority"]
+            )
+
+            text += (
+                f"{priority_text}\n"
+                f"{item['category']}\n"
+                f"{index}. {item['title']}\n"
+                f"📡 {item['domain']}\n"
+                f"🔗 {item['url']}\n\n"
+            )
+
+        text += (
+            "━━━━━━━━━━━━━━\n"
+            "🦇 Alfred değerlendirmesi:\n"
+            "Radar haberleri önem sırasına göre "
+            "düzenlenmiştir. Kritik etiketi, "
+            "haber başlığındaki yüksek etkili "
+            "anahtar kelimelere göre belirlenir."
+        )
+
+        # Telegram limit kontrolü
+        max_length = 4000
+
+        if len(text) <= max_length:
+
+            await update.message.reply_text(
+                text
+            )
+
+        else:
+
+            parts = [
+                text[i:i + max_length]
+                for i in range(
+                    0,
+                    len(text),
+                    max_length
+                )
+            ]
+
+            for part in parts:
+                await update.message.reply_text(
+                    part
+                )
+
+    except Exception as e:
+
+        print(
+            "RADAR HATASI:",
+            repr(e)
+        )
+
+        await update.message.reply_text(
+            "❌ Alfred Radar çalışırken "
+            "bir hata oluştu."
+        )
 
 
 # =========================================================
